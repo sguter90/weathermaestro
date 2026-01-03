@@ -3,21 +3,25 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/sguter90/weathermaestro/internal/api"
-	"github.com/sguter90/weathermaestro/internal/database"
 	"github.com/sguter90/weathermaestro/pkg/parser"
 	"github.com/sguter90/weathermaestro/pkg/parser/ecowitt"
 )
 
 func main() {
 	// Initialize database
-	db, err := database.Connect()
+	db, err := connectDatabase()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed to connect to database:", err)
 	}
 	defer db.Close()
+
+	// Initialize database schema
+	if err := initDatabase(db); err != nil {
+		log.Fatal("Failed to initialize database:", err)
+	}
 
 	// Initialize parser registry
 	registry := parser.NewRegistry()
@@ -27,9 +31,22 @@ func main() {
 
 	// Setup router
 	r := mux.NewRouter()
-	api.SetupRoutes(r, db, registry)
+	setupRoutes(r, db, registry)
+
+	// Get server port from environment
+	port := getEnv("SERVER_PORT", "8059")
+	addr := ":" + port
 
 	// Start server
-	log.Println("Server starting on :8059")
-	log.Fatal(http.ListenAndServe(":8059", r))
+	server := &http.Server{
+		Handler:      r,
+		Addr:         addr,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	log.Printf("Starting WeatherMaestro server on %s...", addr)
+	if err := server.ListenAndServe(); err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }

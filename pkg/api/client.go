@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
-
-	"github.com/sguter90/weathermaestro/pkg/models"
 )
 
 // Client represents a WeatherMaestro API client
