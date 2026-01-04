@@ -13,7 +13,7 @@ type Parser struct{}
 
 // GetEndpoint returns the endpoint path for Ecowitt stations
 func (p *Parser) GetEndpoint() string {
-	return "/api/v1/weather/update/ecowitt"
+	return "/data/report"
 }
 
 // GetStationType returns the station type identifier
@@ -23,7 +23,6 @@ func (p *Parser) GetStationType() string {
 
 // Parse converts Ecowitt format to WeatherData
 func (p *Parser) Parse(params url.Values) (*models.WeatherData, error) {
-	// KORREKTUR: models.WeatherData statt WeatherData
 	data := &models.WeatherData{
 		PassKey:     params.Get("PASSKEY"),
 		StationType: params.Get("stationtype"),

@@ -26,7 +26,7 @@ func setupRoutes(r *mux.Router, db *sql.DB, registry *parser.Registry) {
 	for _, p := range registry.All() {
 		endpoint := p.GetEndpoint()
 		log.Printf("Registering endpoint: %s for station type: %s", endpoint, p.GetStationType())
-		api.HandleFunc(endpoint, weatherUpdateHandler(db, p)).Methods("GET", "POST")
+		r.HandleFunc(endpoint, weatherUpdateHandler(db, p)).Methods("GET", "POST")
 	}
 
 	// Station management

@@ -14,13 +14,13 @@ func main() {
 	// Initialize database
 	db, err := connectDatabase()
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// Initialize database schema
+	// Run migrations
 	if err := initDatabase(db); err != nil {
-		log.Fatal("Failed to initialize database:", err)
+		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
 	// Initialize parser registry

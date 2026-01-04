@@ -1,5 +1,4 @@
-
-version: '3.8'
+name: wm
 
 services:
   postgres:
@@ -14,7 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - weathermaestro-network
+      - internal
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-weather_user} -d ${DB_NAME:-weather_db}"]
       interval: 10s
@@ -40,7 +39,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - weathermaestro-network
+      - internal
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8059/health"]
       interval: 30s
@@ -53,5 +52,5 @@ volumes:
     driver: local
 
 networks:
-  weathermaestro-network:
+  internal:
     driver: bridge

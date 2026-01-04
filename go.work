@@ -3,6 +3,7 @@ go 1.25
 use (
 	./cmd/server
 	./pkg/api
+	./pkg/migrations
 	./pkg/models
 	./pkg/parser
 )
