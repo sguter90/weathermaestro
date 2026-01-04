@@ -1,6 +1,7 @@
 package models
 
 import "github.com/google/uuid"
+import "time"
 
 type StationData struct {
 	ID          uuid.UUID `json:"id"`
@@ -9,4 +10,5 @@ type StationData struct {
 	Model       string    `json:"model"`
 	Freq        string    `json:"freq"`
 	Interval    int       `json:"interval"`
+	LastUpdate  time.Time `json:"last_update"`
 }

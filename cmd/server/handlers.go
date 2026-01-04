@@ -343,17 +343,9 @@ func getStationsHandler(db *sql.DB) http.HandlerFunc {
 		}
 		defer rows.Close()
 
-		type Station struct {
-			ID          uuid.UUID `json:"id"`
-			PassKey     string    `json:"pass_key"`
-			StationType string    `json:"station_type"`
-			Model       string    `json:"model"`
-			LastUpdate  time.Time `json:"last_update"`
-		}
-
-		var stations []Station
+		var stations []models.StationData
 		for rows.Next() {
-			var s Station
+			var s models.StationData
 			if err := rows.Scan(&s.ID, &s.PassKey, &s.StationType, &s.Model, &s.LastUpdate); err != nil {
 				log.Printf("Failed to scan station row: %v", err)
 				continue
