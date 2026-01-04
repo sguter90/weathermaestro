@@ -1,0 +1,52 @@
+name: wm
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-weather_db}
+      POSTGRES_USER: ${DB_USER:-weather_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-weather_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-weather_user} -d ${DB_NAME:-weather_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  weathermaestro:
+    image: ghcr.io/sguter90/weathermaestro:${WM_VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8059}:8059"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-weather_user}
+      DB_PASSWORD: ${DB_PASSWORD:-weather_pass}
+      DB_NAME: ${DB_NAME:-weather_db}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      SERVER_PORT: 8059
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8059/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  internal:
+    driver: bridge
