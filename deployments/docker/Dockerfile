@@ -8,7 +8,6 @@ WORKDIR /app
 # Copy go.work and go.mod files first for better caching
 COPY go.work .
 COPY cmd/server/go.* cmd/server/
-COPY pkg/api/go.* pkg/api/
 COPY pkg/migrations/go.* pkg/migrations/
 COPY pkg/models/go.* pkg/models/
 COPY pkg/parser/go.* pkg/parser/
