@@ -18,10 +18,6 @@ func setupRoutes(r *mux.Router, db *sql.DB, registry *parser.Registry) {
 	// API v1 routes
 	api := r.PathPrefix("/api/v1").Subrouter()
 
-	// Weather data endpoints
-	api.HandleFunc("/weather/current", getCurrentWeatherHandler(db)).Methods("GET")
-	api.HandleFunc("/weather/history", getWeatherHistoryHandler(db)).Methods("GET")
-
 	// Dynamic parser endpoints
 	for _, p := range registry.All() {
 		endpoint := p.GetEndpoint()
@@ -29,9 +25,11 @@ func setupRoutes(r *mux.Router, db *sql.DB, registry *parser.Registry) {
 		r.HandleFunc(endpoint, weatherUpdateHandler(db, p)).Methods("GET", "POST")
 	}
 
-	// Station management
+	// Stations
 	api.HandleFunc("/stations", getStationsHandler(db)).Methods("GET")
 	api.HandleFunc("/stations/{id}", getStationHandler(db)).Methods("GET")
+	api.HandleFunc("/stations/{id}/weather/current", getCurrentWeatherHandler(db)).Methods("GET")
+	api.HandleFunc("/stations/{id}/weather/history", getWeatherHistoryHandler(db)).Methods("GET")
 }
 
 // healthHandler returns server health status

@@ -21,7 +21,6 @@ RUN go mod download
 WORKDIR /app
 COPY cmd/ cmd/
 COPY pkg/ pkg/
-COPY migrations/ migrations/
 
 # Build the application
 WORKDIR /app/cmd/server

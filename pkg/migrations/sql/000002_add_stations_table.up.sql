@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS stations (
     pass_key VARCHAR(255) NOT NULL UNIQUE,
     station_type VARCHAR(100) NOT NULL,
     model VARCHAR(100) NOT NULL,
+    freq VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -21,6 +22,13 @@ ALTER TABLE weather_data
 
 -- Create index on station_id for faster joins
 CREATE INDEX idx_weather_data_station_id ON weather_data(station_id);
+
+-- Remove redundant columns from weather_data (now in stations table)
+ALTER TABLE weather_data
+    DROP COLUMN IF EXISTS pass_key,
+    DROP COLUMN IF EXISTS station_type,
+    DROP COLUMN IF EXISTS model,
+    DROP COLUMN IF EXISTS freq;
 
 -- Function to automatically update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
