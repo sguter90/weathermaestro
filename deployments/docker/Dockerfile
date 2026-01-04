@@ -9,6 +9,7 @@ WORKDIR /app
 COPY go.work .
 COPY cmd/server/go.* cmd/server/
 COPY pkg/api/go.* pkg/api/
+COPY pkg/migrations/go.* pkg/migrations/
 COPY pkg/models/go.* pkg/models/
 COPY pkg/parser/go.* pkg/parser/
 
@@ -20,6 +21,7 @@ RUN go mod download
 WORKDIR /app
 COPY cmd/ cmd/
 COPY pkg/ pkg/
+COPY migrations/ migrations/
 
 # Build the application
 WORKDIR /app/cmd/server
