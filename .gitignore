@@ -1,2 +1,38 @@
-.idea
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/cmd/server/server
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go sum files
 go.work.sum
+go.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
