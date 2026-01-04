@@ -11,7 +11,7 @@ type Parser interface {
 	GetEndpoint() string
 
 	// Parse converts URL parameters to WeatherData
-	Parse(params url.Values) (*models.WeatherData, error)
+	Parse(params url.Values) (*models.WeatherData, *models.StationData, error)
 
 	// GetStationType returns the station type identifier
 	GetStationType() string

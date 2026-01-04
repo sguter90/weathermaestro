@@ -4,17 +4,10 @@ import "time"
 
 // WeatherData represents weather data with all units for API output
 type WeatherData struct {
-	// Station Info
-	PassKey     string    `json:"pass_key"`
-	StationType string    `json:"station_type"`
-	Model       string    `json:"model"`
-	Freq        string    `json:"freq"`
-	DateUTC     time.Time `json:"date_utc"`
-	Interval    int       `json:"interval"`
-
 	// System Info
-	Runtime int `json:"runtime"`
-	Heap    int `json:"heap"`
+	Runtime int       `json:"runtime"`
+	Heap    int       `json:"heap"`
+	DateUTC time.Time `json:"date_utc"`
 
 	// Indoor - Metric
 	TempInC    float64 `json:"temp_in_c"`

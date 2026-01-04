@@ -19,30 +19,30 @@ func weatherUpdateHandler(db *sql.DB, p parser.Parser) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Parse query parameters
 		if err := r.ParseForm(); err != nil {
-			http.Error(w, "Failed to parse form data", http.StatusBadRequest)
+			http.Error(w, "Failed to parse form weatherData", http.StatusBadRequest)
 			return
 		}
 
-		// Parse weather data using the appropriate parser
-		data, err := p.Parse(r.Form)
+		// Parse weather weatherData using the appropriate parser
+		weatherData, stationData, err := p.Parse(r.Form)
 		if err != nil {
-			log.Printf("Failed to parse weather data: %v", err)
-			http.Error(w, "Failed to parse weather data", http.StatusBadRequest)
+			log.Printf("Failed to parse weather weatherData: %v", err)
+			http.Error(w, "Failed to parse weather weatherData", http.StatusBadRequest)
 			return
 		}
 
 		// Ensure station exists (create if not)
-		stationID, err := ensureStation(db, data)
+		stationID, err := ensureStation(db, stationData)
 		if err != nil {
 			log.Printf("Failed to ensure station exists: %v", err)
 			http.Error(w, "Failed to process station", http.StatusInternalServerError)
 			return
 		}
 
-		// Store weather data with station_id
-		if err := storeWeatherData(db, data, stationID); err != nil {
-			log.Printf("Failed to store weather data: %v", err)
-			http.Error(w, "Failed to store weather data", http.StatusInternalServerError)
+		// Store weather weatherData with station_id
+		if err := storeWeatherData(db, weatherData, stationID); err != nil {
+			log.Printf("Failed to store weather weatherData: %v", err)
+			http.Error(w, "Failed to store weather weatherData", http.StatusInternalServerError)
 			return
 		}
 
@@ -51,14 +51,14 @@ func weatherUpdateHandler(db *sql.DB, p parser.Parser) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":     "success",
-			"message":    "Weather data stored successfully",
+			"message":    "Weather weatherData stored successfully",
 			"station_id": stationID.String(),
 		})
 	}
 }
 
 // ensureStation checks if a station exists and creates it if not
-func ensureStation(db *sql.DB, data *models.WeatherData) (uuid.UUID, error) {
+func ensureStation(db *sql.DB, data *models.StationData) (uuid.UUID, error) {
 	var stationID uuid.UUID
 
 	// Try to find existing station by passKey
@@ -100,7 +100,7 @@ func ensureStation(db *sql.DB, data *models.WeatherData) (uuid.UUID, error) {
 func storeWeatherData(db *sql.DB, data *models.WeatherData, stationID uuid.UUID) error {
 	query := `
 		INSERT INTO weather_data (
-			station_id, date_utc, interval,
+			station_id, date_utc,
 			runtime, heap,
 			temp_in_c, temp_in_f, humidity_in,
 			temp_out_c, temp_out_f, humidity_out,
@@ -119,12 +119,12 @@ func storeWeatherData(db *sql.DB, data *models.WeatherData, stationID uuid.UUID)
 			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
 			$31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-			$41, $42, $43, $44, $45
+			$41, $42, $43, $44
 		)
 	`
 
 	_, err := db.Exec(query,
-		stationID, data.DateUTC, data.Interval,
+		stationID, data.DateUTC,
 		data.Runtime, data.Heap,
 		data.TempInC, data.TempInF, data.HumidityIn,
 		data.TempOutC, data.TempOutF, data.HumidityOut,
@@ -151,7 +151,7 @@ func getCurrentWeatherHandler(db *sql.DB) http.HandlerFunc {
 
 		query := `
 			SELECT 
-				wd.station_id, wd.date_utc, wd.interval,
+				wd.date_utc,
 				wd.runtime, wd.heap,
 				wd.temp_in_c, wd.temp_in_f, wd.humidity_in,
 				wd.temp_out_c, wd.temp_out_f, wd.humidity_out,
@@ -164,8 +164,7 @@ func getCurrentWeatherHandler(db *sql.DB) http.HandlerFunc {
 				wd.weekly_rain_mm, wd.monthly_rain_mm, wd.yearly_rain_mm, wd.total_rain_mm,
 				wd.rain_rate_in, wd.event_rain_in, wd.hourly_rain_in, wd.daily_rain_in,
 				wd.weekly_rain_in, wd.monthly_rain_in, wd.yearly_rain_in, wd.total_rain_in,
-				wd.vpd, wd.wh65_batt,
-				s.pass_key, s.station_type, s.model, s.freq
+				wd.vpd, wd.wh65_batt
 			FROM weather_data wd
 			JOIN stations s ON wd.station_id = s.id
 			WHERE s.id = $1
@@ -175,7 +174,7 @@ func getCurrentWeatherHandler(db *sql.DB) http.HandlerFunc {
 
 		var data models.WeatherData
 		err := db.QueryRow(query, stationID).Scan(
-			&stationID, &data.DateUTC, &data.Interval,
+			&data.DateUTC,
 			&data.Runtime, &data.Heap,
 			&data.TempInC, &data.TempInF, &data.HumidityIn,
 			&data.TempOutC, &data.TempOutF, &data.HumidityOut,
@@ -189,7 +188,6 @@ func getCurrentWeatherHandler(db *sql.DB) http.HandlerFunc {
 			&data.RainRateIn, &data.EventRainIn, &data.HourlyRainIn, &data.DailyRainIn,
 			&data.WeeklyRainIn, &data.MonthlyRainIn, &data.YearlyRainIn, &data.TotalRainIn,
 			&data.VPD, &data.WH65Batt,
-			&data.PassKey, &data.StationType, &data.Model, &data.Freq,
 		)
 
 		if err != nil {
@@ -228,7 +226,7 @@ func getWeatherHistoryHandler(db *sql.DB) http.HandlerFunc {
 		// Build query
 		query := `
 			SELECT 
-				wd.station_id, wd.date_utc, wd.interval,
+				wd.date_utc,
 				wd.runtime, wd.heap,
 				wd.temp_in_c, wd.temp_in_f, wd.humidity_in,
 				wd.temp_out_c, wd.temp_out_f, wd.humidity_out,
@@ -241,8 +239,7 @@ func getWeatherHistoryHandler(db *sql.DB) http.HandlerFunc {
 				wd.weekly_rain_mm, wd.monthly_rain_mm, wd.yearly_rain_mm, wd.total_rain_mm,
 				wd.rain_rate_in, wd.event_rain_in, wd.hourly_rain_in, wd.daily_rain_in,
 				wd.weekly_rain_in, wd.monthly_rain_in, wd.yearly_rain_in, wd.total_rain_in,
-				wd.vpd, wd.wh65_batt,
-				s.pass_key, s.station_type, s.model, s.freq
+				wd.vpd, wd.wh65_batt
 			FROM weather_data wd
 			JOIN stations s ON wd.station_id = s.id
 		`
@@ -294,9 +291,8 @@ func getWeatherHistoryHandler(db *sql.DB) http.HandlerFunc {
 		var weatherDataList []models.WeatherData
 		for rows.Next() {
 			var data models.WeatherData
-			var stationID uuid.UUID
 			err := rows.Scan(
-				&stationID, &data.DateUTC, &data.Interval,
+				&data.DateUTC,
 				&data.Runtime, &data.Heap,
 				&data.TempInC, &data.TempInF, &data.HumidityIn,
 				&data.TempOutC, &data.TempOutF, &data.HumidityOut,
@@ -310,7 +306,6 @@ func getWeatherHistoryHandler(db *sql.DB) http.HandlerFunc {
 				&data.RainRateIn, &data.EventRainIn, &data.HourlyRainIn, &data.DailyRainIn,
 				&data.WeeklyRainIn, &data.MonthlyRainIn, &data.YearlyRainIn, &data.TotalRainIn,
 				&data.VPD, &data.WH65Batt,
-				&data.PassKey, &data.StationType, &data.Model, &data.Freq,
 			)
 			if err != nil {
 				log.Printf("Failed to scan weather history row: %v", err)
@@ -375,11 +370,12 @@ func getStationsHandler(db *sql.DB) http.HandlerFunc {
 func getStationHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
-		passKey := vars["id"]
+		stationId := vars["id"]
 
 		query := `
 			SELECT 
-				s.id, s.pass_key, 
+				s.id, 
+				s.pass_key, 
 				s.station_type, 
 				s.model,
 				COUNT(wd.id) as total_readings,
@@ -387,8 +383,8 @@ func getStationHandler(db *sql.DB) http.HandlerFunc {
 				MAX(wd.date_utc) as last_reading
 			FROM stations s
 			LEFT JOIN weather_data wd ON s.id = wd.station_id
-			WHERE s.pass_key = $1
-			GROUP BY s.id, s.pass_key, s.station_type, s.model
+			WHERE s.id = $1
+			GROUP BY s.id
 		`
 
 		type StationDetail struct {
@@ -402,7 +398,7 @@ func getStationHandler(db *sql.DB) http.HandlerFunc {
 		}
 
 		var station StationDetail
-		err := db.QueryRow(query, passKey).Scan(
+		err := db.QueryRow(query, stationId).Scan(
 			&station.ID,
 			&station.PassKey,
 			&station.StationType,

@@ -14,7 +14,7 @@ FROM stations s
 WHERE wd.station_id = s.id;
 
 -- Drop old foreign key and column
-ALTER TABLE weather_data DROP CONSTRAINT weather_data_station_id_fkey;
+ALTER TABLE weather_data DROP CONSTRAINT fk_weather_data_station;
 ALTER TABLE weather_data DROP COLUMN station_id;
 
 -- Rename new column
@@ -28,7 +28,7 @@ ALTER TABLE stations ADD PRIMARY KEY (id);
 
 -- Add foreign key constraint
 ALTER TABLE weather_data
-ADD CONSTRAINT weather_data_station_id_fkey
+ADD CONSTRAINT fk_weather_data_station
 FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE;
 
 -- Add NOT NULL constraint

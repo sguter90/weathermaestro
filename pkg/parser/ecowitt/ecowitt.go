@@ -22,13 +22,14 @@ func (p *Parser) GetStationType() string {
 }
 
 // Parse converts Ecowitt format to WeatherData
-func (p *Parser) Parse(params url.Values) (*models.WeatherData, error) {
-	data := &models.WeatherData{
+func (p *Parser) Parse(params url.Values) (*models.WeatherData, *models.StationData, error) {
+	stationData := &models.StationData{
 		PassKey:     params.Get("PASSKEY"),
 		StationType: params.Get("stationtype"),
 		Model:       params.Get("model"),
 		Freq:        params.Get("freq"),
 	}
+	weatherData := &models.WeatherData{}
 
 	// Parse date
 	if dateStr := params.Get("dateutc"); dateStr != "" {
@@ -39,7 +40,7 @@ func (p *Parser) Parse(params url.Values) (*models.WeatherData, error) {
 
 		for _, format := range formats {
 			if t, err := time.Parse(format, dateStr); err == nil {
-				data.DateUTC = t
+				weatherData.DateUTC = t
 				break
 			}
 		}
@@ -66,51 +67,51 @@ func (p *Parser) Parse(params url.Values) (*models.WeatherData, error) {
 	}
 
 	// Parse system info
-	data.Runtime = parseInt("runtime")
-	data.Heap = parseInt("heap")
-	data.Interval = parseInt("interval")
+	weatherData.Runtime = parseInt("runtime")
+	weatherData.Heap = parseInt("heap")
+	stationData.Interval = parseInt("interval")
 
 	// Parse indoor temperature (Ecowitt sends in Fahrenheit)
 	tempInF := parseFloat("tempinf")
-	data.TempInF = tempInF
-	data.TempInC = (tempInF - 32) * 5 / 9
-	data.HumidityIn = parseInt("humidityin")
+	weatherData.TempInF = tempInF
+	weatherData.TempInC = (tempInF - 32) * 5 / 9
+	weatherData.HumidityIn = parseInt("humidityin")
 
 	// Parse outdoor temperature (Ecowitt sends in Fahrenheit)
 	tempOutF := parseFloat("tempf")
-	data.TempOutF = tempOutF
-	data.TempOutC = (tempOutF - 32) * 5 / 9
-	data.HumidityOut = parseInt("humidity")
+	weatherData.TempOutF = tempOutF
+	weatherData.TempOutC = (tempOutF - 32) * 5 / 9
+	weatherData.HumidityOut = parseInt("humidity")
 
 	// Parse barometric pressure (Ecowitt sends in inHg)
 	baromRelIn := parseFloat("baromrelin")
 	baromAbsIn := parseFloat("baromabsin")
-	data.BaromRelIn = baromRelIn
-	data.BaromAbsIn = baromAbsIn
-	data.BaromRelHPa = baromRelIn * 33.8639
-	data.BaromAbsHPa = baromAbsIn * 33.8639
+	weatherData.BaromRelIn = baromRelIn
+	weatherData.BaromAbsIn = baromAbsIn
+	weatherData.BaromRelHPa = baromRelIn * 33.8639
+	weatherData.BaromAbsHPa = baromAbsIn * 33.8639
 
 	// Parse wind (Ecowitt sends in mph)
-	data.WindDir = parseInt("winddir")
+	weatherData.WindDir = parseInt("winddir")
 	windSpeedMPH := parseFloat("windspeedmph")
 	windGustMPH := parseFloat("windgustmph")
 	maxDailyGustMPH := parseFloat("maxdailygust")
 
-	data.WindSpeedMPH = windSpeedMPH
-	data.WindGustMPH = windGustMPH
-	data.MaxDailyGustMPH = maxDailyGustMPH
+	weatherData.WindSpeedMPH = windSpeedMPH
+	weatherData.WindGustMPH = windGustMPH
+	weatherData.MaxDailyGustMPH = maxDailyGustMPH
 
-	data.WindSpeedMS = windSpeedMPH * 0.44704
-	data.WindGustMS = windGustMPH * 0.44704
-	data.MaxDailyGustMS = maxDailyGustMPH * 0.44704
+	weatherData.WindSpeedMS = windSpeedMPH * 0.44704
+	weatherData.WindGustMS = windGustMPH * 0.44704
+	weatherData.MaxDailyGustMS = maxDailyGustMPH * 0.44704
 
-	data.WindSpeedKmH = windSpeedMPH * 1.60934
-	data.WindGustKmH = windGustMPH * 1.60934
-	data.MaxDailyGustKmH = maxDailyGustMPH * 1.60934
+	weatherData.WindSpeedKmH = windSpeedMPH * 1.60934
+	weatherData.WindGustKmH = windGustMPH * 1.60934
+	weatherData.MaxDailyGustKmH = maxDailyGustMPH * 1.60934
 
 	// Parse solar & UV
-	data.SolarRadiation = parseFloat("solarradiation")
-	data.UV = parseInt("uv")
+	weatherData.SolarRadiation = parseFloat("solarradiation")
+	weatherData.UV = parseInt("uv")
 
 	// Parse rain (Ecowitt sends in inches)
 	rainRateIn := parseFloat("rainratein")
@@ -122,27 +123,27 @@ func (p *Parser) Parse(params url.Values) (*models.WeatherData, error) {
 	yearlyRainIn := parseFloat("yearlyrainin")
 	totalRainIn := parseFloat("totalrainin")
 
-	data.RainRateIn = rainRateIn
-	data.EventRainIn = eventRainIn
-	data.HourlyRainIn = hourlyRainIn
-	data.DailyRainIn = dailyRainIn
-	data.WeeklyRainIn = weeklyRainIn
-	data.MonthlyRainIn = monthlyRainIn
-	data.YearlyRainIn = yearlyRainIn
-	data.TotalRainIn = totalRainIn
+	weatherData.RainRateIn = rainRateIn
+	weatherData.EventRainIn = eventRainIn
+	weatherData.HourlyRainIn = hourlyRainIn
+	weatherData.DailyRainIn = dailyRainIn
+	weatherData.WeeklyRainIn = weeklyRainIn
+	weatherData.MonthlyRainIn = monthlyRainIn
+	weatherData.YearlyRainIn = yearlyRainIn
+	weatherData.TotalRainIn = totalRainIn
 
-	data.RainRateMmH = rainRateIn * 25.4
-	data.EventRainMm = eventRainIn * 25.4
-	data.HourlyRainMm = hourlyRainIn * 25.4
-	data.DailyRainMm = dailyRainIn * 25.4
-	data.WeeklyRainMm = weeklyRainIn * 25.4
-	data.MonthlyRainMm = monthlyRainIn * 25.4
-	data.YearlyRainMm = yearlyRainIn * 25.4
-	data.TotalRainMm = totalRainIn * 25.4
+	weatherData.RainRateMmH = rainRateIn * 25.4
+	weatherData.EventRainMm = eventRainIn * 25.4
+	weatherData.HourlyRainMm = hourlyRainIn * 25.4
+	weatherData.DailyRainMm = dailyRainIn * 25.4
+	weatherData.WeeklyRainMm = weeklyRainIn * 25.4
+	weatherData.MonthlyRainMm = monthlyRainIn * 25.4
+	weatherData.YearlyRainMm = yearlyRainIn * 25.4
+	weatherData.TotalRainMm = totalRainIn * 25.4
 
 	// Parse additional sensors
-	data.VPD = parseFloat("vpd")
-	data.WH65Batt = parseInt("wh65batt")
+	weatherData.VPD = parseFloat("vpd")
+	weatherData.WH65Batt = parseInt("wh65batt")
 
-	return data, nil
+	return weatherData, stationData, nil
 }
