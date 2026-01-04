@@ -12,6 +12,8 @@ import (
 
 // setupRoutes configures all API routes
 func setupRoutes(r *mux.Router, db *sql.DB, registry *parser.Registry) {
+	r.Use(corsMiddleware)
+
 	// Health check
 	r.HandleFunc("/health", healthHandler).Methods("GET")
 
