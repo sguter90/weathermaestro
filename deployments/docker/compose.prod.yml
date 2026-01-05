@@ -37,11 +37,23 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8059/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8059/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  ui:
+    image: ghcr.io/sguter90/weathermaestro-ui:latest
+    restart: unless-stopped
+    ports:
+      - "${UI_PORT:-8080}:80"
+    environment:
+      APP_NAME: "${UI_APP_NAME:-WeatherMaestro}"
+      API_BASE_URL: "${SERVER_PUBLIC_URL}"
+    depends_on:
+      server:
+        condition: service_healthy
 
 volumes:
   postgres_data:
