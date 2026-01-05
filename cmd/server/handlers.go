@@ -40,10 +40,17 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		// Check if origin is allowed
 		origin := r.Header.Get("Origin")
-		for _, allowed := range allowedOrigins {
-			if origin == allowed {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				break
+		if origin != "" {
+			isAllowed := false
+			for _, allowed := range allowedOrigins {
+				if origin == allowed {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					isAllowed = true
+					break
+				}
+			}
+			if !isAllowed {
+				log.Printf("Origin '%s' is not within allowed origins: %s", origin, strings.Join(allowedOrigins, ", "))
 			}
 		}
 

@@ -35,6 +35,7 @@ services:
       DB_NAME: ${DB_NAME:-weather_db}
       DB_SSLMODE: ${DB_SSLMODE:-disable}
       SERVER_PORT: 8059
+      SERVER_ALLOWED_ORIGINS: ${SERVER_ALLOWED_ORIGINS:-http://localhost:8059}
     depends_on:
       postgres:
         condition: service_healthy
