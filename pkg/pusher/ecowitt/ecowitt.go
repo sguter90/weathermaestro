@@ -8,21 +8,21 @@ import (
 	"github.com/sguter90/weathermaestro/pkg/models"
 )
 
-// Parser implements the Ecowitt weather station parser
-type Parser struct{}
+// Pusher implements the Ecowitt weather station pusher
+type Pusher struct{}
 
 // GetEndpoint returns the endpoint path for Ecowitt stations
-func (p *Parser) GetEndpoint() string {
+func (p *Pusher) GetEndpoint() string {
 	return "/data/report"
 }
 
 // GetStationType returns the station type identifier
-func (p *Parser) GetStationType() string {
+func (p *Pusher) GetStationType() string {
 	return "Ecowitt"
 }
 
 // Parse converts Ecowitt format to WeatherData
-func (p *Parser) Parse(params url.Values) (*models.WeatherData, *models.StationData, error) {
+func (p *Pusher) Parse(params url.Values) (*models.WeatherData, *models.StationData, error) {
 	stationData := &models.StationData{
 		PassKey:     params.Get("PASSKEY"),
 		StationType: params.Get("stationtype"),

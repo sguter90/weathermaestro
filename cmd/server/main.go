@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/sguter90/weathermaestro/pkg/parser"
-	"github.com/sguter90/weathermaestro/pkg/parser/ecowitt"
+	"github.com/sguter90/weathermaestro/pkg/puller/netatmo"
+	"github.com/sguter90/weathermaestro/pkg/pusher"
+	"github.com/sguter90/weathermaestro/pkg/pusher/ecowitt"
 )
 
 func main() {
@@ -23,15 +24,19 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
-	// Initialize parser registry
-	registry := parser.NewRegistry()
-	registry.Register(&ecowitt.Parser{})
-	// registry.Register(&ambient.Parser{})
-	// registry.Register(&weatherflow.Parser{})
+	// Initialize pusher pusherRegistry
+	pusherRegistry := pusher.NewRegistry()
+	pusherRegistry.Register(&ecowitt.Pusher{})
+	// pusherRegistry.Register(&ambient.Pusher{})
+	// pusherRegistry.Register(&weatherflow.Pusher{})
+
+	// Initialize puller registry
+	pullerRegistry := pusher.NewPullerRegistry()
+	pullerRegistry.Register(netatmo.NewPuller())
 
 	// Setup router
 	r := mux.NewRouter()
-	setupRoutes(r, db, registry)
+	setupRoutes(r, db, pusherRegistry)
 
 	// Get server port from environment
 	port := getEnv("SERVER_PORT", "8059")

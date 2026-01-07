@@ -6,7 +6,7 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	p := &Parser{}
+	p := &Pusher{}
 
 	params := url.Values{}
 	params.Set("tempf", "72.5")

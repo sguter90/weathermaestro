@@ -1,4 +1,4 @@
-module github.com/sguter90/weathermaestro/pkg/parser
+module github.com/sguter90/weathermaestro/pkg/pusher
 
 go 1.25
 

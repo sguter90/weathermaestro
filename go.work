@@ -4,5 +4,6 @@ use (
 	./cmd/server
 	./pkg/migrations
 	./pkg/models
-	./pkg/parser
+	./pkg/puller
+	./pkg/pusher
 )

@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/sguter90/weathermaestro/pkg/models"
-	"github.com/sguter90/weathermaestro/pkg/parser"
+	"github.com/sguter90/weathermaestro/pkg/pusher"
 )
 
 // CORS Middleware
@@ -69,7 +69,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 // weatherUpdateHandler handles incoming weather data from stations
-func weatherUpdateHandler(db *sql.DB, p parser.Parser) http.HandlerFunc {
+func weatherUpdateHandler(db *sql.DB, p pusher.Pusher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Parse query parameters
 		if err := r.ParseForm(); err != nil {
@@ -77,7 +77,7 @@ func weatherUpdateHandler(db *sql.DB, p parser.Parser) http.HandlerFunc {
 			return
 		}
 
-		// Parse weather weatherData using the appropriate parser
+		// Parse weather weatherData using the appropriate pusher
 		weatherData, stationData, err := p.Parse(r.Form)
 		if err != nil {
 			log.Printf("Failed to parse weather weatherData: %v", err)

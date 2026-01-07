@@ -7,11 +7,11 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/sguter90/weathermaestro/pkg/parser"
+	"github.com/sguter90/weathermaestro/pkg/pusher"
 )
 
 // setupRoutes configures all API routes
-func setupRoutes(r *mux.Router, db *sql.DB, registry *parser.Registry) {
+func setupRoutes(r *mux.Router, db *sql.DB, registry *pusher.Registry) {
 	r.Use(corsMiddleware)
 
 	// Health check
@@ -20,7 +20,7 @@ func setupRoutes(r *mux.Router, db *sql.DB, registry *parser.Registry) {
 	// API v1 routes
 	api := r.PathPrefix("/api/v1").Subrouter()
 
-	// Dynamic parser endpoints
+	// Dynamic pusher endpoints
 	for _, p := range registry.All() {
 		endpoint := p.GetEndpoint()
 		log.Printf("Registering endpoint: %s for station type: %s", endpoint, p.GetStationType())

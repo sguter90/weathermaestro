@@ -10,7 +10,8 @@ COPY go.work .
 COPY cmd/server/go.* cmd/server/
 COPY pkg/migrations/go.* pkg/migrations/
 COPY pkg/models/go.* pkg/models/
-COPY pkg/parser/go.* pkg/parser/
+COPY pkg/pusher/go.* pkg/pusher/
+COPY pkg/puller/go.* pkg/puller/
 
 # Download dependencies (cached if go.mod/go.sum unchanged)
 WORKDIR /app/cmd/server
