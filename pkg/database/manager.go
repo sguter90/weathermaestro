@@ -359,27 +359,23 @@ func (dm *DatabaseManager) GetStation(stationID uuid.UUID) (models.StationDetail
 // GetCurrentWeather retrieves the latest weather data for a station
 func (dm *DatabaseManager) GetCurrentWeather(stationID uuid.UUID) (models.WeatherData, error) {
 	query := `
-            SELECT 
-                s.id,
-                st.name,
-                st.category,
-                st.unit,
-                sr.value,
-                sr.date_utc
-            FROM sensors s
-            JOIN sensor_types st ON s.sensor_type_id = st.id
-            LEFT JOIN LATERAL (
-                SELECT value, date_utc
-                FROM sensor_readings
-                WHERE sensor_id = s.id
-                ORDER BY date_utc DESC
-                LIMIT 1
-            ) sr ON TRUE
-            WHERE s.station_id = $1
-            ORDER BY st.category, s.location
+		SELECT
+			s.id,
+			s.sensor_type,
+			sr.value,
+			sr.date_utc
+		FROM sensors s
+		LEFT JOIN LATERAL (
+			SELECT value, date_utc
+			FROM sensor_readings
+			WHERE sensor_id = s.id
+			ORDER BY date_utc DESC
+			LIMIT 1
+		) sr ON TRUE
+		WHERE s.station_id = $1
         `
 
-	rows, err := dm.QueryWithHealthCheck(context.Background(), query, stationID)
+	rows, err := dm.QueryWithHealthCheck(context.Background(), query, stationID.String())
 	if err != nil {
 		return models.WeatherData{}, err
 	}
@@ -391,13 +387,11 @@ func (dm *DatabaseManager) GetCurrentWeather(stationID uuid.UUID) (models.Weathe
 
 	for rows.Next() {
 		var sensorID uuid.UUID
-		var sensorName string
-		var category string
-		var unit string
+		var sensorType string
 		var value *float64
 		var dateUTC *time.Time
 
-		err := rows.Scan(&sensorID, &sensorName, &category, &unit, &value, &dateUTC)
+		err := rows.Scan(&sensorID, &sensorType, &value, &dateUTC)
 		if err != nil {
 			log.Printf("Failed to scan sensor reading: %v", err)
 			continue
@@ -411,7 +405,7 @@ func (dm *DatabaseManager) GetCurrentWeather(stationID uuid.UUID) (models.Weathe
 			weatherData.DateUTC = *dateUTC
 		}
 
-		mapSensorToWeatherData(&weatherData, sensorName, *value)
+		mapSensorToWeatherData(&weatherData, sensorType, *value)
 	}
 
 	return weatherData, rows.Err()
@@ -420,17 +414,14 @@ func (dm *DatabaseManager) GetCurrentWeather(stationID uuid.UUID) (models.Weathe
 // GetWeatherHistory retrieves weather data history for a station
 func (dm *DatabaseManager) GetWeatherHistory(stationID uuid.UUID, startTime string, endTime string, limit int) ([]models.WeatherData, error) {
 	query := `
-            SELECT 
-                s.id,
-                st.name,
-                st.category,
-                st.unit,
-                sr.value,
-                sr.date_utc
-            FROM sensors s
-            JOIN sensor_types st ON s.sensor_type_id = st.id
-            LEFT JOIN sensor_readings sr ON s.id = sr.sensor_id
-            WHERE s.station_id = $1
+		SELECT 
+			s.id,
+			s.sensor_type,
+			sr.value,
+			sr.date_utc
+		FROM sensors s
+		LEFT JOIN sensor_readings sr ON s.id = sr.sensor_id
+		WHERE s.station_id = $1
         `
 
 	args := []interface{}{stationID}
@@ -462,13 +453,11 @@ func (dm *DatabaseManager) GetWeatherHistory(stationID uuid.UUID, startTime stri
 
 	for rows.Next() {
 		var sensorID uuid.UUID
-		var sensorName string
-		var category string
-		var unit string
+		var sensorType string
 		var value *float64
 		var dateUTC *time.Time
 
-		err := rows.Scan(&sensorID, &sensorName, &category, &unit, &value, &dateUTC)
+		err := rows.Scan(&sensorID, &sensorType, &value, &dateUTC)
 		if err != nil {
 			log.Printf("Failed to scan sensor reading: %v", err)
 			continue
@@ -487,7 +476,7 @@ func (dm *DatabaseManager) GetWeatherHistory(stationID uuid.UUID, startTime stri
 
 		wd := weatherDataMap[*dateUTC]
 
-		mapSensorToWeatherData(wd, sensorName, *value)
+		mapSensorToWeatherData(wd, sensorType, *value)
 	}
 
 	// Convert map to sorted slice
