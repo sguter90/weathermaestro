@@ -177,7 +177,7 @@ func (rm *RouteManager) weatherUpdateHandler(p pusher.Pusher) http.HandlerFunc {
 			}
 		}
 
-		log.Printf("✓ Pushed %d Weather readings for station ID: %s", len(readings), stationID.String())
+		log.Printf("✓ Pushed %d Weather readings for station: %s", len(readings), stationData.StationType)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)

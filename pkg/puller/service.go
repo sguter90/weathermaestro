@@ -98,6 +98,11 @@ func (ps *PullerService) pullFromProvider(p Puller, config map[string]string) {
 		return
 	}
 
+	if len(sensorReadings) == 0 {
+		log.Printf("❌ No weather data received from %s", p.GetProviderType())
+		return
+	}
+
 	// Store weather data
 	for _, reading := range sensorReadings {
 		if err := ps.dbManager.StoreSensorReading(reading.SensorID, reading.Value, reading.DateUTC); err != nil {
@@ -106,5 +111,5 @@ func (ps *PullerService) pullFromProvider(p Puller, config map[string]string) {
 		}
 	}
 
-	log.Printf("✓ Successfully pulled and stored data from %s", p.GetProviderType())
+	log.Printf("✓ Pulled %d Weather readings for station: %s", len(sensorReadings), p.GetProviderType())
 }
