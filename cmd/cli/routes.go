@@ -154,6 +154,11 @@ func (rm *RouteManager) weatherUpdateHandler(p pusher.Pusher) http.HandlerFunc {
 			http.Error(w, "Failed to ensure sensors", http.StatusInternalServerError)
 			return
 		}
+		if len(sensors) == 0 {
+			log.Printf("❌ No sensors found for station ID: %s", stationID.String())
+			http.Error(w, "No sensors found for station ID", http.StatusBadRequest)
+			return
+		}
 
 		// ParseWeatherData weather data using pusher
 		readings, err := p.ParseWeatherData(r.Form, sensors)
@@ -164,11 +169,15 @@ func (rm *RouteManager) weatherUpdateHandler(p pusher.Pusher) http.HandlerFunc {
 		}
 
 		// Store weather data
-		if err := rm.dbManager.StoreWeatherData(readings); err != nil {
-			log.Printf("❌ Failed to store weather data: %v", err)
-			http.Error(w, "Failed to store weather data", http.StatusInternalServerError)
-			return
+		for _, reading := range readings {
+			if err := rm.dbManager.StoreSensorReading(reading.SensorID, reading.Value, reading.DateUTC); err != nil {
+				log.Printf("❌ Failed to store reading: %v", err)
+				http.Error(w, "Failed to store readings", http.StatusInternalServerError)
+				return
+			}
 		}
+
+		log.Printf("✓ Pushed %d Weather readings for station ID: %s", len(readings), stationID.String())
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)

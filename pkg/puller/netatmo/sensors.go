@@ -35,9 +35,9 @@ func GetSupportedSensors() map[string]models.Sensor {
 		Location:   "Indoor",
 		Enabled:    true,
 	}
-	sensors["NAMain-"+models.SensorTypeCO2] = models.Sensor{
+	sensors["NAMain-"+models.SensorTypeNoise] = models.Sensor{
 		Name:       "Noise",
-		SensorType: models.SensorTypeCO2,
+		SensorType: models.SensorTypeNoise,
 		Location:   "Indoor",
 		Enabled:    true,
 	}
@@ -121,9 +121,27 @@ func GetSupportedSensors() map[string]models.Sensor {
 		Location:   "Indoor",
 		Enabled:    true,
 	}
+	sensors["NAModule4-"+models.SensorTypePressure] = models.Sensor{
+		Name:       "Pressure (Additional Indoor)",
+		SensorType: models.SensorTypePressure,
+		Location:   "Indoor",
+		Enabled:    true,
+	}
 	sensors["NAModule4-"+models.SensorTypeCO2] = models.Sensor{
 		Name:       "CO2 (Additional Indoor)",
 		SensorType: models.SensorTypeCO2,
+		Location:   "Indoor",
+		Enabled:    true,
+	}
+	sensors["NAModule4-"+models.SensorTypeCO2] = models.Sensor{
+		Name:       "CO2 (Additional Indoor)",
+		SensorType: models.SensorTypeCO2,
+		Location:   "Indoor",
+		Enabled:    true,
+	}
+	sensors["NAModule4-"+models.SensorTypeNoise] = models.Sensor{
+		Name:       "Noise (Additional Indoor)",
+		SensorType: models.SensorTypeNoise,
 		Location:   "Indoor",
 		Enabled:    true,
 	}

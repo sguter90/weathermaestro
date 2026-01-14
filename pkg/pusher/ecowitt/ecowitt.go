@@ -37,7 +37,7 @@ func (p *Pusher) ParseSensors(params url.Values) map[string]models.Sensor {
 
 	result := make(map[string]models.Sensor)
 	for _, sensor := range supportedSensors {
-		if val := params.Get(sensor.Name); val != "" {
+		if val := params.Get(sensor.RemoteID); val != "" {
 			result[sensor.RemoteID] = sensor
 		}
 	}

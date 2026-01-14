@@ -176,20 +176,26 @@ func (dm *DatabaseManager) EnsureStation(data *models.StationData) (uuid.UUID, e
         RETURNING id
     `
 
-	var stationID uuid.UUID
+	var stationIDString string
 	err := dm.QueryRowWithHealthCheck(context.Background(), query,
 		data.PassKey,
 		data.StationType,
 		data.Model,
 		data.Mode,
 		data.ServiceName,
-	).Scan(&stationID)
+	).Scan(&stationIDString)
+
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to ensure station: %w", err)
+	}
+
+	stationID, err := uuid.Parse(stationIDString)
 
 	return stationID, err
 }
 func (dm *DatabaseManager) EnsureSensorsByRemoteId(stationID uuid.UUID, sensors map[string]models.Sensor) (map[string]models.Sensor, error) {
 	for remoteID, sensor := range sensors {
-		var existingSensorID uuid.UUID
+		var existingSensorID string
 		checkQuery := `
             SELECT id FROM sensors 
             WHERE station_id = $1 AND remote_id = $2
@@ -226,19 +232,34 @@ func (dm *DatabaseManager) EnsureSensorsByRemoteId(stationID uuid.UUID, sensors 
 				return sensors, fmt.Errorf("failed to create sensor: %w", err)
 			}
 
+			// Update the sensor in the map with the new ID
+			sensor.ID = newSensorID
+			sensors[remoteID] = sensor
+
 			log.Printf("Created new sensor with remote_id %s (ID: %s)", remoteID, newSensorID)
+			continue // Skip to next sensor since we just created it
 		} else if err != nil {
 			log.Printf("Failed to check sensor existence for remote_id %s: %v", remoteID, err)
 			return sensors, fmt.Errorf("failed to check sensor: %w", err)
 		}
 
+		// Sensor exists, parse the ID and update the sensor in the map
+		parsedID, err := uuid.Parse(existingSensorID)
+		if err != nil {
+			log.Printf("Failed to parse sensor ID for remote_id %s: %v", remoteID, err)
+			return sensors, fmt.Errorf("failed to parse sensor ID: %w", err)
+		}
+
+		sensor.ID = parsedID
+		sensors[remoteID] = sensor
+
 		// Sensor exists, update it
 		updateQuery := `
-							UPDATE sensors 
-							SET sensor_type = $1, location = $2, name = $3, model = $4,
-								battery_level = $5, signal_strength = $6, enabled = $7
-							WHERE id = $8
-						`
+            UPDATE sensors 
+            SET sensor_type = $1, location = $2, name = $3, model = $4,
+                battery_level = $5, signal_strength = $6, enabled = $7
+            WHERE id = $8
+        `
 
 		_, err = dm.ExecWithHealthCheck(context.Background(), updateQuery,
 			sensor.SensorType,
@@ -248,7 +269,7 @@ func (dm *DatabaseManager) EnsureSensorsByRemoteId(stationID uuid.UUID, sensors 
 			sensor.BatteryLevel,
 			sensor.SignalStrength,
 			sensor.Enabled,
-			existingSensorID,
+			parsedID,
 		)
 
 		if err != nil {

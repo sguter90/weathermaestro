@@ -92,16 +92,18 @@ func (ps *PullerService) pullFromProvider(p Puller, config map[string]string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	weatherData, _, err := p.Pull(ctx, config)
+	sensorReadings, _, err := p.Pull(ctx, config)
 	if err != nil {
 		log.Printf("❌ Error pulling from %s: %v", p.GetProviderType(), err)
 		return
 	}
 
 	// Store weather data
-	if err := ps.dbManager.StoreWeatherData(weatherData); err != nil {
-		log.Printf("❌ Error storing weather data: %v", err)
-		return
+	for _, reading := range sensorReadings {
+		if err := ps.dbManager.StoreSensorReading(reading.SensorID, reading.Value, reading.DateUTC); err != nil {
+			log.Printf("❌ Error storing weather data (%s, %f, %s): %v", reading.SensorID.String(), reading.Value, reading.DateUTC, err)
+			return
+		}
 	}
 
 	log.Printf("✓ Successfully pulled and stored data from %s", p.GetProviderType())

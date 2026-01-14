@@ -90,8 +90,6 @@ func (p *Puller) Pull(ctx context.Context, config map[string]string) (map[string
 	// Parse indoor data (from main device)
 	dateUTC := p.unixToTime(device.Modules[0].LastMessage)
 
-	// sensor reading mit remote-id statt sensor type
-
 	sensorReadings := make(map[string]models.SensorReading)
 
 	var remoteId string
@@ -140,94 +138,100 @@ func (p *Puller) Pull(ctx context.Context, config map[string]string) (map[string
 
 	// Parse outdoor data (from modules)
 	for _, module := range device.Modules {
-		p.parseModuleToSensorReadings(sensorReadings, sensorMap, module, dateUTC)
+		p.parseModuleToSensorReadings(sensorReadings, sensors, module, dateUTC)
 	}
 
 	return sensorReadings, stationData, nil
 }
 
 // parseModuleToSensorReadings parses a Netatmo module and adds sensor readings to the map
-func (p *Puller) parseModuleToSensorReadings(sensorReadings map[uuid.UUID]models.SensorReading, sensorMap map[string]uuid.UUID, module StationDataModule, dateUTC time.Time) {
+func (p *Puller) parseModuleToSensorReadings(sensorReadings map[string]models.SensorReading, sensors map[string]models.Sensor, module StationDataModule, dateUTC time.Time) {
+	var remoteId string
+
 	switch module.Type {
 	case "NAModule1": // Outdoor module
-		if module.DashboardData.Temperature != 0 {
-			if sensorID, ok := sensorMap[models.SensorTypeTemperatureOutdoor]; ok {
-				sensorReadings[sensorID] = models.SensorReading{
-					SensorID: sensorID,
-					Value:    module.DashboardData.Temperature,
-					DateUTC:  dateUTC,
-				}
-			}
+		remoteId = module.ID + "-" + models.SensorTypeTemperatureOutdoor
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    module.DashboardData.Temperature,
+			DateUTC:  dateUTC,
 		}
-		if module.DashboardData.Humidity > 0 {
-			if sensorID, ok := sensorMap[models.SensorTypeHumidityOutdoor]; ok {
-				sensorReadings[sensorID] = models.SensorReading{
-					SensorID: sensorID,
-					Value:    float64(module.DashboardData.Humidity),
-					DateUTC:  dateUTC,
-				}
-			}
+
+		remoteId = module.ID + "-" + models.SensorTypeHumidityOutdoor
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    float64(module.DashboardData.Humidity),
+			DateUTC:  dateUTC,
 		}
 
 	case "NAModule2": // Wind gauge
-		if module.DashboardData.WindAngle > 0 {
-			if sensorID, ok := sensorMap[models.SensorTypeWindDirection]; ok {
-				sensorReadings[sensorID] = models.SensorReading{
-					SensorID: sensorID,
-					Value:    float64(module.DashboardData.WindAngle),
-					DateUTC:  dateUTC,
-				}
-			}
+		remoteId = module.ID + "-" + models.SensorTypeWindDirection
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    float64(module.DashboardData.WindAngle),
+			DateUTC:  dateUTC,
 		}
-		if module.DashboardData.WindStrength > 0 {
-			if sensorID, ok := sensorMap[models.SensorTypeWindSpeed]; ok {
-				sensorReadings[sensorID] = models.SensorReading{
-					SensorID: sensorID,
-					Value:    float64(module.DashboardData.WindStrength),
-					DateUTC:  dateUTC,
-				}
-			}
+
+		remoteId = module.ID + "-" + models.SensorTypeWindSpeed
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    float64(module.DashboardData.WindStrength),
+			DateUTC:  dateUTC,
 		}
-		if module.DashboardData.GustStrength > 0 {
-			if sensorID, ok := sensorMap[models.SensorTypeWindGust]; ok {
-				sensorReadings[sensorID] = models.SensorReading{
-					SensorID: sensorID,
-					Value:    float64(module.DashboardData.GustStrength),
-					DateUTC:  dateUTC,
-				}
-			}
+
+		remoteId = module.ID + "-" + models.SensorTypeWindGust
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    float64(module.DashboardData.GustStrength),
+			DateUTC:  dateUTC,
 		}
 
 	case "NAModule3": // Rain gauge
-		if module.DashboardData.Rain > 0 {
-			if sensorID, ok := sensorMap[models.SensorTypeRainfallRate]; ok {
-				sensorReadings[sensorID] = models.SensorReading{
-					SensorID: sensorID,
-					Value:    module.DashboardData.Rain,
-					DateUTC:  dateUTC,
-				}
-			}
+		remoteId = module.ID + "-" + models.SensorTypeRainfallRate
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    module.DashboardData.Rain,
+			DateUTC:  dateUTC,
+		}
+
+		remoteId = module.ID + "-" + models.SensorTypeRainfallHourly
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    module.DashboardData.SumRain1,
+			DateUTC:  dateUTC,
+		}
+
+		remoteId = module.ID + "-" + models.SensorTypeRainfallDaily
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    module.DashboardData.SumRain24,
+			DateUTC:  dateUTC,
 		}
 
 	case "NAModule4": // Additional indoor module
-		if module.DashboardData.Temperature != 0 {
-			if sensorID, ok := sensorMap[models.SensorTypeTemperatureOutdoor]; ok {
-				sensorReadings[sensorID] = models.SensorReading{
-					SensorID: sensorID,
-					Value:    module.DashboardData.Temperature,
-					DateUTC:  dateUTC,
-				}
-			}
+		remoteId = module.ID + "-" + models.SensorTypeTemperature
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    module.DashboardData.Temperature,
+			DateUTC:  dateUTC,
 		}
-		if module.DashboardData.Humidity > 0 {
-			if sensorID, ok := sensorMap[models.SensorTypeHumidityOutdoor]; ok {
-				sensorReadings[sensorID] = models.SensorReading{
-					SensorID: sensorID,
-					Value:    float64(module.DashboardData.Humidity),
-					DateUTC:  dateUTC,
-				}
-			}
+
+		remoteId = module.ID + "-" + models.SensorTypeHumidity
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    float64(module.DashboardData.Humidity),
+			DateUTC:  dateUTC,
 		}
+
+		remoteId = module.ID + "-" + models.SensorTypeCO2
+		sensorReadings[remoteId] = models.SensorReading{
+			SensorID: sensors[remoteId].ID,
+			Value:    float64(module.DashboardData.CO2),
+			DateUTC:  dateUTC,
+		}
+
+	default:
+		fmt.Printf("Unknown module type: %s\n", module.Type)
 	}
 }
 
@@ -324,36 +328,54 @@ func (p *Puller) getSensorsFromDevice(device StationDataDevice) map[string]model
 	sensors := make(map[string]models.Sensor)
 	supportedSensors := GetSupportedSensors()
 
+	// Helper function to safely add sensor
+	addSensor := func(remoteID, sensorKey string) {
+		if sensor, exists := supportedSensors[sensorKey]; exists {
+			// Create a copy and set the RemoteID
+			sensorCopy := sensor
+			sensorCopy.RemoteID = remoteID
+			sensors[remoteID] = sensorCopy
+		} else {
+			log.Printf("⚠️  Warning: Sensor key '%s' not found in supported sensors", sensorKey)
+		}
+	}
+
 	// Check main device (NAMain) sensors
-	sensors[device.ID+"-Temperature"] = supportedSensors["NAMain-Temperature"]
-	sensors[device.ID+"-Humdity"] = supportedSensors["NAMain-Humidity"]
-	sensors[device.ID+"-Pressure"] = supportedSensors["NAMain-Pressure"]
-	sensors[device.ID+"-CO2"] = supportedSensors["NAMain-CO2"]
-	sensors[device.ID+"-Noise"] = supportedSensors["NAMain-Noise"]
+	addSensor(device.ID+"-"+models.SensorTypeTemperature, "NAMain-"+models.SensorTypeTemperature)
+	addSensor(device.ID+"-"+models.SensorTypeHumidity, "NAMain-"+models.SensorTypeHumidity)
+	addSensor(device.ID+"-"+models.SensorTypePressure, "NAMain-"+models.SensorTypePressure)
+	addSensor(device.ID+"-"+models.SensorTypePressureAbsolute, "NAMain-"+models.SensorTypePressureAbsolute)
+	addSensor(device.ID+"-"+models.SensorTypeCO2, "NAMain-"+models.SensorTypeCO2)
+	addSensor(device.ID+"-"+models.SensorTypeNoise, "NAMain-"+models.SensorTypeNoise)
 
 	// Check each module
 	for _, module := range device.Modules {
 		switch module.Type {
 		case "NAModule1": // Outdoor module
-			sensors[module.ID+"-Temperature"] = supportedSensors["NAModule1-Temperature"]
-			sensors[module.ID+"-Humidity"] = supportedSensors["NAModule1-Humidity"]
+			addSensor(module.ID+"-"+models.SensorTypeTemperatureOutdoor, "NAModule1-"+models.SensorTypeTemperatureOutdoor)
+			addSensor(module.ID+"-"+models.SensorTypeHumidityOutdoor, "NAModule1-"+models.SensorTypeHumidityOutdoor)
 
 		case "NAModule2": // Wind gauge
-			sensors[module.ID+"-WindAngle"] = supportedSensors["NAModule2-WindAngle"]
-			sensors[module.ID+"-WindStrength"] = supportedSensors["NAModule2-WindStrength"]
-			sensors[module.ID+"-GustStrength"] = supportedSensors["NAModule2-GustStrength"]
-			sensors[module.ID+"-GustAngle"] = supportedSensors["NAModule2-GustAngle"]
-			sensors[module.ID+"-MaxWindStr"] = supportedSensors["NAModule2-MaxWindStr"]
+			addSensor(module.ID+"-"+models.SensorTypeWindDirection, "NAModule2-"+models.SensorTypeWindDirection)
+			addSensor(module.ID+"-"+models.SensorTypeWindSpeed, "NAModule2-"+models.SensorTypeWindSpeed)
+			addSensor(module.ID+"-"+models.SensorTypeWindGust, "NAModule2-"+models.SensorTypeWindGust)
+			addSensor(module.ID+"-"+models.SensorTypeWindGustAngle, "NAModule2-"+models.SensorTypeWindGustAngle)
+			addSensor(module.ID+"-"+models.SensorTypeWindSpeedMaxDaily, "NAModule2-"+models.SensorTypeWindSpeedMaxDaily)
 
 		case "NAModule3": // Rain gauge
-			sensors[module.ID+"-Rain"] = supportedSensors["NAModule3-Rain"]
-			sensors[module.ID+"-SumRain24"] = supportedSensors["NAModule3-SumRain24"]
-			sensors[module.ID+"-SumRain1"] = supportedSensors["NAModule3-SumRain1"]
+			addSensor(module.ID+"-"+models.SensorTypeRainfallRate, "NAModule3-"+models.SensorTypeRainfallRate)
+			addSensor(module.ID+"-"+models.SensorTypeRainfallDaily, "NAModule3-"+models.SensorTypeRainfallDaily)
+			addSensor(module.ID+"-"+models.SensorTypeRainfallHourly, "NAModule3-"+models.SensorTypeRainfallHourly)
 
 		case "NAModule4": // Additional indoor module
-			sensors[module.ID+"-Temperature"] = supportedSensors["NAModule4-Temperature"]
-			sensors[module.ID+"-Humidity"] = supportedSensors["NAModule4-Humidity"]
-			sensors[module.ID+"-CO2"] = supportedSensors["NAModule4-CO2"]
+			addSensor(module.ID+"-"+models.SensorTypeTemperature, "NAModule4-"+models.SensorTypeTemperature)
+			addSensor(module.ID+"-"+models.SensorTypeHumidity, "NAModule4-"+models.SensorTypeHumidity)
+			addSensor(module.ID+"-"+models.SensorTypePressure, "NAModule4-"+models.SensorTypePressure)
+			addSensor(module.ID+"-"+models.SensorTypeCO2, "NAModule4-"+models.SensorTypeCO2)
+			addSensor(module.ID+"-"+models.SensorTypeNoise, "NAModule4-"+models.SensorTypeNoise)
+
+		default:
+			log.Printf("⚠️  Warning: Unknown module type: %s", module.Type)
 		}
 	}
 
