@@ -4,7 +4,6 @@
 *.dll
 *.so
 *.dylib
-/cmd/server/server
 
 # Test binary
 *.test

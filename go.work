@@ -1,8 +1,8 @@
 go 1.25
 
 use (
-	./cmd/server
-	./pkg/migrations
+	./cmd/cli
+	./pkg/database
 	./pkg/models
 	./pkg/puller
 	./pkg/pusher

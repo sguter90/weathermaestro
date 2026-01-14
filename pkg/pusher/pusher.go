@@ -1,8 +1,10 @@
 package pusher
 
 import (
-	"github.com/sguter90/weathermaestro/pkg/models"
 	"net/url"
+
+	"github.com/google/uuid"
+	"github.com/sguter90/weathermaestro/pkg/models"
 )
 
 // Pusher defines the interface for all weather station pushers
@@ -10,8 +12,14 @@ type Pusher interface {
 	// GetEndpoint returns the HTTP endpoint path for this pusher
 	GetEndpoint() string
 
-	// Parse converts URL parameters to WeatherData
-	Parse(params url.Values) (*models.WeatherData, *models.StationData, error)
+	// ParseStation converts URL parameters to StationData
+	ParseStation(params url.Values) *models.StationData
+
+	// ParseSensors converts URL parameters to SensorMap indexed by remoted ID
+	ParseSensors(params url.Values) map[string]models.Sensor
+
+	// ParseWeatherData converts URL parameters to WeatherData
+	ParseWeatherData(params url.Values, sensors map[string]models.Sensor) (map[uuid.UUID]models.SensorReading, error)
 
 	// GetStationType returns the station type identifier
 	GetStationType() string

@@ -17,7 +17,6 @@
 *.dylib
 *.test
 *.out
-cmd/server/server
 
 # Dependencies
 vendor/

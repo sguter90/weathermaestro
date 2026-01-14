@@ -8,6 +8,7 @@ services:
       POSTGRES_DB: ${DB_NAME:-weather_db}
       POSTGRES_USER: ${DB_USER:-weather_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-weather_pass}
+      TZ: ${TZ:-Europe/Berlin}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -32,6 +33,7 @@ services:
       DB_SSLMODE: ${DB_SSLMODE:-disable}
       SERVER_PORT: 8059
       SERVER_ALLOWED_ORIGINS: ${SERVER_ALLOWED_ORIGINS:-http://localhost:8059}
+      TZ: ${TZ:-Europe/Berlin}
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,6 +54,7 @@ services:
     environment:
       APP_NAME: "${UI_APP_NAME:-WeatherMaestro}"
       API_BASE_URL: "${SERVER_PUBLIC_URL}"
+      TZ: ${TZ:-Europe/Berlin}
     depends_on:
       server:
         condition: service_healthy

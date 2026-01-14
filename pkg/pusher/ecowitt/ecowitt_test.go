@@ -13,9 +13,9 @@ func TestParse(t *testing.T) {
 	params.Set("humidity", "65")
 	params.Set("PASSKEY", "test123")
 
-	data, err := p.Parse(params)
+	data, err := p.ParseWeatherData(params)
 	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
+		t.Fatalf("ParseWeatherData failed: %v", err)
 	}
 
 	if data.TempOutF != 72.5 {

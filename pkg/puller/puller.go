@@ -3,6 +3,7 @@ package puller
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/sguter90/weathermaestro/pkg/models"
 )
 
@@ -14,7 +15,7 @@ type Puller interface {
 	// Pull fetches weather data from the external provider
 	// ctx: context for cancellation and timeouts
 	// config: provider-specific configuration (API keys, station IDs, etc.)
-	Pull(ctx context.Context, config map[string]string) (*models.WeatherData, *models.StationData, error)
+	Pull(ctx context.Context, config map[string]string) (map[uuid.UUID]models.SensorReading, *models.StationData, error)
 
 	// ValidateConfig checks if the provided configuration is valid for this provider
 	ValidateConfig(config map[string]string) error

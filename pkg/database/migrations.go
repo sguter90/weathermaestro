@@ -1,4 +1,4 @@
-package migrations
+package database
 
 import (
 	"database/sql"
@@ -19,15 +19,15 @@ type Migration struct {
 	SQL     string
 }
 
-// Runner handles database migrations
-type Runner struct {
+// MigrationsRunner handles database migrations
+type MigrationsRunner struct {
 	db         *sql.DB
 	migrations []Migration
 }
 
-// NewRunner creates a new migration runner
-func NewRunner(db *sql.DB) (*Runner, error) {
-	runner := &Runner{
+// NewMigrationsRunner creates a new migration runner
+func NewMigrationsRunner(db *sql.DB) (*MigrationsRunner, error) {
+	runner := &MigrationsRunner{
 		db:         db,
 		migrations: []Migration{},
 	}
@@ -40,7 +40,7 @@ func NewRunner(db *sql.DB) (*Runner, error) {
 }
 
 // loadMigrations loads all .up.sql migration files from the embedded filesystem
-func (r *Runner) loadMigrations() error {
+func (r *MigrationsRunner) loadMigrations() error {
 	// Read from the sql subdirectory
 	entries, err := migrationFiles.ReadDir("sql")
 	if err != nil {
@@ -59,7 +59,7 @@ func (r *Runner) loadMigrations() error {
 			continue
 		}
 
-		// Parse filename: 000001_name.up.sql
+		// ParseWeatherData filename: 000001_name.up.sql
 		parts := strings.Split(filename, "_")
 		if len(parts) < 2 {
 			continue
@@ -98,7 +98,7 @@ func (r *Runner) loadMigrations() error {
 }
 
 // createMigrationsTable creates the schema_migrations table if it doesn't exist
-func (r *Runner) createMigrationsTable() error {
+func (r *MigrationsRunner) createMigrationsTable() error {
 	query := `
         CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY,
@@ -111,7 +111,7 @@ func (r *Runner) createMigrationsTable() error {
 }
 
 // getAppliedMigrations returns a set of applied migration versions
-func (r *Runner) getAppliedMigrations() (map[int]bool, error) {
+func (r *MigrationsRunner) getAppliedMigrations() (map[int]bool, error) {
 	applied := make(map[int]bool)
 
 	rows, err := r.db.Query("SELECT version FROM schema_migrations ORDER BY version")
@@ -132,7 +132,7 @@ func (r *Runner) getAppliedMigrations() (map[int]bool, error) {
 }
 
 // Run executes all pending migrations
-func (r *Runner) Run() error {
+func (r *MigrationsRunner) Run() error {
 	if err := r.createMigrationsTable(); err != nil {
 		return fmt.Errorf("failed to create migrations table: %w", err)
 	}
