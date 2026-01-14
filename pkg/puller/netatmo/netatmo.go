@@ -88,7 +88,7 @@ func (p *Puller) Pull(ctx context.Context, config map[string]string) (map[string
 	}
 
 	// Parse indoor data (from main device)
-	dateUTC := p.unixToTime(device.Modules[0].LastMessage)
+	dateUTC := p.unixToTime(device.DashboardData.TimeUTC)
 
 	sensorReadings := make(map[string]models.SensorReading)
 

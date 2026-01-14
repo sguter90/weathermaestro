@@ -101,7 +101,7 @@ func (dm *DatabaseManager) StoreSensorReading(sensorID uuid.UUID, value float64,
         VALUES ($1, $2, $3)
     `
 
-	_, err := dm.ExecWithHealthCheck(context.Background(), query, sensorID, value, dateUTC)
+	_, err := dm.ExecWithHealthCheck(context.Background(), query, sensorID, value, dateUTC.Format(time.RFC3339Nano))
 	return err
 }
 
