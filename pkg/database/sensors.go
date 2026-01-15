@@ -37,10 +37,10 @@ func (dm *DatabaseManager) GetSensorsByStation(stationID uuid.UUID) ([]models.Se
         SELECT 
             s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
             s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
-            sr.id, sr.sensor_id, sr.value, sr.date_utc, sr.created_at
+            sr.id, sr.sensor_id, sr.value, sr.date_utc
         FROM sensors s
         LEFT JOIN LATERAL (
-            SELECT id, sensor_id, value, date_utc, created_at
+            SELECT id, sensor_id, value, date_utc
             FROM sensor_readings
             WHERE sensor_id = s.id
             ORDER BY date_utc DESC
@@ -63,14 +63,13 @@ func (dm *DatabaseManager) GetSensorsByStation(stationID uuid.UUID) ([]models.Se
 		var readingSensorID *uuid.UUID
 		var readingValue *float64
 		var readingDateUTC *time.Time
-		var readingCreatedAt *time.Time
 
 		err := rows.Scan(
 			&swr.Sensor.ID, &swr.Sensor.StationID, &swr.Sensor.SensorType,
 			&swr.Sensor.Location, &swr.Sensor.Name, &swr.Sensor.Model,
 			&swr.Sensor.BatteryLevel, &swr.Sensor.SignalStrength, &swr.Sensor.Enabled,
 			&swr.Sensor.CreatedAt, &swr.Sensor.UpdatedAt,
-			&readingID, &readingSensorID, &readingValue, &readingDateUTC, &readingCreatedAt,
+			&readingID, &readingSensorID, &readingValue, &readingDateUTC,
 		)
 		if err != nil {
 			log.Printf("Failed to scan sensor: %v", err)
@@ -80,11 +79,10 @@ func (dm *DatabaseManager) GetSensorsByStation(stationID uuid.UUID) ([]models.Se
 		// Construct latest reading if it exists
 		if readingID != nil {
 			swr.LatestReading = &models.SensorReading{
-				ID:        *readingID,
-				SensorID:  *readingSensorID,
-				Value:     *readingValue,
-				DateUTC:   *readingDateUTC,
-				CreatedAt: *readingCreatedAt,
+				ID:       *readingID,
+				SensorID: *readingSensorID,
+				Value:    *readingValue,
+				DateUTC:  *readingDateUTC,
 			}
 		}
 
@@ -94,43 +92,165 @@ func (dm *DatabaseManager) GetSensorsByStation(stationID uuid.UUID) ([]models.Se
 	return sensors, rows.Err()
 }
 
-// StoreSensorReading stores a single sensor reading
-func (dm *DatabaseManager) StoreSensorReading(sensorID uuid.UUID, value float64, dateUTC time.Time) error {
-	query := `
-        INSERT INTO sensor_readings (sensor_id, value, date_utc)
-        VALUES ($1, $2, $3)
-    `
+// GetSensor retrieves a single sensor by ID
+func (dm *DatabaseManager) GetSensor(sensorID uuid.UUID, includeLatest bool) (*models.SensorWithLatestReading, error) {
+	var query string
 
-	_, err := dm.ExecWithHealthCheck(context.Background(), query, sensorID, value, dateUTC.Format(time.RFC3339Nano))
-	return err
+	if includeLatest {
+		query = `
+            SELECT 
+                s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
+                s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
+                sr.id, sr.sensor_id, sr.value, sr.date_utc
+            FROM sensors s
+            LEFT JOIN LATERAL (
+                SELECT id, sensor_id, value, date_utc
+                FROM sensor_readings
+                WHERE sensor_id = s.id
+                ORDER BY date_utc DESC
+                LIMIT 1
+            ) sr ON TRUE
+            WHERE s.id = $1
+        `
+	} else {
+		query = `
+            SELECT 
+                s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
+                s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
+                NULL, NULL, NULL, NULL, NULL
+            FROM sensors s
+            WHERE s.id = $1
+        `
+	}
+
+	var swr models.SensorWithLatestReading
+	var readingID *uuid.UUID
+	var readingSensorID *uuid.UUID
+	var readingValue *float64
+	var readingDateUTC *time.Time
+
+	err := dm.QueryRowWithHealthCheck(context.Background(), query, sensorID).Scan(
+		&swr.Sensor.ID, &swr.Sensor.StationID, &swr.Sensor.SensorType,
+		&swr.Sensor.Location, &swr.Sensor.Name, &swr.Sensor.Model,
+		&swr.Sensor.BatteryLevel, &swr.Sensor.SignalStrength, &swr.Sensor.Enabled,
+		&swr.Sensor.CreatedAt, &swr.Sensor.UpdatedAt,
+		&readingID, &readingSensorID, &readingValue, &readingDateUTC,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct latest reading if it exists
+	if readingID != nil {
+		swr.LatestReading = &models.SensorReading{
+			ID:       *readingID,
+			SensorID: *readingSensorID,
+			Value:    *readingValue,
+			DateUTC:  *readingDateUTC,
+		}
+	}
+
+	return &swr, nil
 }
 
-// GetSensorReadings retrieves readings for a sensor within a time range
-func (dm *DatabaseManager) GetSensorReadings(sensorID uuid.UUID, startTime, endTime time.Time, limit int) ([]models.SensorReading, error) {
-	query := `
-        SELECT id, sensor_id, value, date_utc, created_at
-        FROM sensor_readings
-        WHERE sensor_id = $1 AND date_utc >= $2 AND date_utc <= $3
-        ORDER BY date_utc DESC
-        LIMIT $4
-    `
+// GetSensors retrieves sensors with flexible filtering
+func (dm *DatabaseManager) GetSensors(params models.SensorQueryParams) ([]models.SensorWithLatestReading, error) {
+	var query string
+	args := []interface{}{}
+	argCount := 1
 
-	rows, err := dm.QueryWithHealthCheck(context.Background(), query, sensorID, startTime, endTime, limit)
+	if params.IncludeLatest {
+		query = `
+            SELECT 
+                s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
+                s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
+                sr.id, sr.sensor_id, sr.value, sr.date_utc
+            FROM sensors s
+            LEFT JOIN LATERAL (
+                SELECT id, sensor_id, value, date_utc
+                FROM sensor_readings
+                WHERE sensor_id = s.id
+                ORDER BY date_utc DESC
+                LIMIT 1
+            ) sr ON TRUE
+            WHERE 1=1
+        `
+	} else {
+		query = `
+            SELECT 
+                s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
+                s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
+                NULL, NULL, NULL, NULL, NULL
+            FROM sensors s
+            WHERE 1=1
+        `
+	}
+
+	// Build WHERE clause dynamically
+	if params.StationID != nil {
+		query += " AND s.station_id = $" + string(rune(argCount+'0'))
+		args = append(args, *params.StationID)
+		argCount++
+	}
+
+	if params.SensorType != "" {
+		query += " AND s.sensor_type = $" + string(rune(argCount+'0'))
+		args = append(args, params.SensorType)
+		argCount++
+	}
+
+	if params.Location != "" {
+		query += " AND s.location = $" + string(rune(argCount+'0'))
+		args = append(args, params.Location)
+		argCount++
+	}
+
+	if params.Enabled != nil {
+		query += " AND s.enabled = $" + string(rune(argCount+'0'))
+		args = append(args, *params.Enabled)
+		argCount++
+	}
+
+	query += " ORDER BY s.location, s.sensor_type, s.created_at"
+
+	rows, err := dm.QueryWithHealthCheck(context.Background(), query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var readings []models.SensorReading
+	var sensors []models.SensorWithLatestReading
 	for rows.Next() {
-		var reading models.SensorReading
-		err := rows.Scan(&reading.ID, &reading.SensorID, &reading.Value, &reading.DateUTC, &reading.CreatedAt)
+		var swr models.SensorWithLatestReading
+		var readingID *uuid.UUID
+		var readingSensorID *uuid.UUID
+		var readingValue *float64
+		var readingDateUTC *time.Time
+
+		err := rows.Scan(
+			&swr.Sensor.ID, &swr.Sensor.StationID, &swr.Sensor.SensorType,
+			&swr.Sensor.Location, &swr.Sensor.Name, &swr.Sensor.Model,
+			&swr.Sensor.BatteryLevel, &swr.Sensor.SignalStrength, &swr.Sensor.Enabled,
+			&swr.Sensor.CreatedAt, &swr.Sensor.UpdatedAt,
+			&readingID, &readingSensorID, &readingValue, &readingDateUTC,
+		)
 		if err != nil {
-			log.Printf("Failed to scan reading: %v", err)
+			log.Printf("Failed to scan sensor: %v", err)
 			continue
 		}
-		readings = append(readings, reading)
+
+		// Construct latest reading if it exists
+		if readingID != nil {
+			swr.LatestReading = &models.SensorReading{
+				ID:       *readingID,
+				SensorID: *readingSensorID,
+				Value:    *readingValue,
+				DateUTC:  *readingDateUTC,
+			}
+		}
+
+		sensors = append(sensors, swr)
 	}
 
-	return readings, rows.Err()
+	return sensors, rows.Err()
 }

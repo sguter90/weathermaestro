@@ -22,33 +22,17 @@ type Sensor struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
-// SensorReading represents a single measurement from a sensor
-type SensorReading struct {
-	ID        uuid.UUID `json:"id"`
-	SensorID  uuid.UUID `json:"sensor_id"`
-	Value     float64   `json:"value"`
-	DateUTC   time.Time `json:"date_utc"`
-	CreatedAt time.Time `json:"created_at"`
+// SensorQueryParams holds query parameters for sensor queries
+type SensorQueryParams struct {
+	StationID     *uuid.UUID
+	SensorType    string
+	Location      string
+	Enabled       *bool
+	IncludeLatest bool
 }
 
 // SensorWithLatestReading combines sensor info with its latest reading
 type SensorWithLatestReading struct {
 	Sensor        Sensor         `json:"sensor"`
 	LatestReading *SensorReading `json:"latest_reading,omitempty"`
-	SensorType    string         `json:"sensor_type"`
-}
-
-// ParsedSensorData represents parsed sensor data from a weather station
-type ParsedSensorData struct {
-	Station StationData                 `json:"station"`
-	Sensors map[uuid.UUID]SensorReading `json:"sensors"` // grouped by location
-}
-
-// SensorReadingWithMetadata includes sensor metadata with the reading
-type SensorReadingWithMetadata struct {
-	Reading  SensorReading `json:"reading"`
-	Location string        `json:"location"`
-	Type     string        `json:"type"`
-	Unit     string        `json:"unit"`
-	Category string        `json:"category"`
 }
