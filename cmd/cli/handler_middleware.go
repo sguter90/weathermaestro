@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"strings"
@@ -55,5 +56,14 @@ func (rm *RouteManager) corsMiddleware(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+// contextMiddleware adds database context to requests
+func (rm *RouteManager) contextMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), "db", rm.dbManager.GetDB())
+		ctx = context.WithValue(ctx, "dbManager", rm.dbManager)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

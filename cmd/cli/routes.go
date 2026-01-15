@@ -1,9 +1,7 @@
 package main
 
 import (
-	"context"
 	"log"
-	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/sguter90/weathermaestro/pkg/database"
@@ -71,13 +69,4 @@ func (rm *RouteManager) setupAPIRoutes(api *mux.Router) {
 // setupOAuthRoutes configures OAuth callback routes
 func (rm *RouteManager) setupOAuthRoutes(r *mux.Router) {
 	r.HandleFunc("/netatmo/callback/{stationID}", rm.netatmoCallbackHandler).Methods("GET")
-}
-
-// contextMiddleware adds database context to requests
-func (rm *RouteManager) contextMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), "db", rm.dbManager.GetDB())
-		ctx = context.WithValue(ctx, "dbManager", rm.dbManager)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
 }
