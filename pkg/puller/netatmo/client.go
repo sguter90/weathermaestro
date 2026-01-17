@@ -208,6 +208,10 @@ func (c *Client) RefreshAccessToken(ctx context.Context) error {
 		return fmt.Errorf("failed to parse refresh token response: %w", err)
 	}
 
+	c.accessToken = tokenResp.AccessToken
+	c.refreshToken = tokenResp.RefreshToken
+	c.tokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+
 	// Persist the new tokens if callback is set
 	if c.onTokenRefresh != nil {
 		if err := c.onTokenRefresh(c.accessToken, c.refreshToken, c.tokenExpiry); err != nil {
@@ -215,16 +219,12 @@ func (c *Client) RefreshAccessToken(ctx context.Context) error {
 		}
 	}
 
-	c.accessToken = tokenResp.AccessToken
-	c.refreshToken = tokenResp.RefreshToken
-	c.tokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-
 	return nil
 }
 
 // ensureValidToken checks if token is still valid, refreshes if needed
 func (c *Client) ensureValidToken(ctx context.Context) error {
-	if time.Now().Before(c.tokenExpiry.Add(-5 * time.Minute)) {
+	if time.Now().Before(c.tokenExpiry.Add(-15 * time.Minute)) {
 		// Token is still valid (with 5 minute buffer)
 		return nil
 	}
