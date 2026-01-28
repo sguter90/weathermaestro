@@ -117,7 +117,7 @@ func (dm *DatabaseManager) GetSensor(sensorID uuid.UUID, includeLatest bool) (*m
             SELECT 
                 s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
                 s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
-                NULL, NULL, NULL, NULL, NULL
+                NULL, NULL, NULL, NULL
             FROM sensors s
             WHERE s.id = $1
         `
@@ -180,7 +180,7 @@ func (dm *DatabaseManager) GetSensors(params models.SensorQueryParams) ([]models
             SELECT 
                 s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
                 s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
-                NULL, NULL, NULL, NULL, NULL
+                NULL, NULL, NULL, NULL
             FROM sensors s
             WHERE 1=1
         `

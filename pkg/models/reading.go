@@ -95,19 +95,14 @@ type AggregatedReading struct {
 	Count    int       `json:"count,omitempty"`
 	MinValue float64   `json:"min_value,omitempty"`
 	MaxValue float64   `json:"max_value,omitempty"`
-
-	// Optional fields when joined with sensor data
-	SensorType     string `json:"sensor_type,omitempty"`
-	SensorName     string `json:"sensor_name,omitempty"`
-	SensorLocation string `json:"sensor_location,omitempty"`
-	Unit           string `json:"unit,omitempty"`
 }
 
 type ReadingsResponse struct {
-	Data       interface{} `json:"data"`
-	Total      int         `json:"total"`
-	Page       int         `json:"page"`
-	TotalPages int         `json:"total_pages"`
-	Limit      int         `json:"limit"`
-	HasMore    bool        `json:"has_more"`
+	Data         interface{} `json:"data"`
+	Total        int         `json:"total"`
+	Page         int         `json:"page"`
+	TotalPages   int         `json:"total_pages"`
+	Limit        int         `json:"limit"`
+	HasMore      bool        `json:"has_more"`
+	IsAggregated bool        `json:"is_aggregated"`
 }

@@ -24,7 +24,6 @@ import (
 //   - order: sort order (asc/desc, default: desc)
 //   - aggregate: aggregation interval (1m, 5m, 15m, 1h, 6h, 1d, 1w, 1M)
 //   - aggregate_func: aggregation function (avg, min, max, sum, count, first, last)
-//   - latest: return only latest reading per sensor (true/false)
 //   - group_by: group results by (sensor, sensor_type, location)
 func (rm *RouteManager) getReadingsHandler(w http.ResponseWriter, r *http.Request) {
 	params := parseReadingQueryParams(r)
@@ -39,9 +38,7 @@ func (rm *RouteManager) getReadingsHandler(w http.ResponseWriter, r *http.Reques
 	var err error
 
 	// Handle different query modes
-	if params.Latest {
-		result, err = rm.dbManager.GetLatestReadings(params)
-	} else if params.Aggregate != "" {
+	if params.Aggregate != "" {
 		result, err = rm.dbManager.GetAggregatedReadings(params)
 	} else {
 		result, err = rm.dbManager.GetReadings(params)
