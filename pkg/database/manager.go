@@ -325,6 +325,7 @@ func (dm *DatabaseManager) GetStationList() ([]models.StationListItem, error) {
 }
 
 // GetStation retrieves detailed information about a specific station
+// GetStation retrieves detailed information about a specific station
 func (dm *DatabaseManager) GetStation(stationID uuid.UUID) (models.StationDetail, error) {
 	query := `
             SELECT 
@@ -343,15 +344,25 @@ func (dm *DatabaseManager) GetStation(stationID uuid.UUID) (models.StationDetail
         `
 
 	var station models.StationDetail
+	var firstReading, lastReading sql.NullTime
+
 	err := dm.QueryRowWithHealthCheck(context.Background(), query, stationID).Scan(
 		&station.ID,
 		&station.PassKey,
 		&station.StationType,
 		&station.Model,
 		&station.TotalReadings,
-		&station.FirstReading,
-		&station.LastReading,
+		&firstReading,
+		&lastReading,
 	)
+
+	// Convert sql.NullTime to *time.Time
+	if firstReading.Valid {
+		station.FirstReading = firstReading.Time
+	}
+	if lastReading.Valid {
+		station.LastReading = lastReading.Time
+	}
 
 	return station, err
 }
