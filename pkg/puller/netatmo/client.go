@@ -96,13 +96,18 @@ func (c *Client) SetTokenInvalidCallback(callback func(state string) error) {
 }
 
 // GetAuthorizationURL returns the URL where the user should authenticate
-func (c *Client) GetAuthorizationURL() (string, string) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		fmt.Printf("failed to generate state: %v\n", err)
-		return "", ""
+func (c *Client) GetAuthorizationURL(state string) (string, string) {
+	if state == "" {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			fmt.Printf("failed to generate state: %v\n", err)
+			return "", ""
+		}
+
+		state = base64.URLEncoding.EncodeToString(b)
 	}
-	c.state = base64.URLEncoding.EncodeToString(b)
+
+	c.state = state
 
 	params := url.Values{}
 	params.Set("client_id", c.clientID)
@@ -165,9 +170,9 @@ func (c *Client) RefreshAccessToken(ctx context.Context) error {
 
 	data := url.Values{}
 	data.Set("grant_type", "refresh_token")
+	data.Set("refresh_token", c.refreshToken)
 	data.Set("client_id", c.clientID)
 	data.Set("client_secret", c.clientSecret)
-	data.Set("refresh_token", c.refreshToken)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.netatmo.com/oauth2/token", strings.NewReader(data.Encode()))
 	if err != nil {
@@ -189,7 +194,7 @@ func (c *Client) RefreshAccessToken(ctx context.Context) error {
 		if err := json.Unmarshal(body, &errResp); err == nil {
 			if errMsg, ok := errResp["error"].(string); ok {
 				if errMsg == "invalid_grant" {
-					authUrl, state := c.GetAuthorizationURL()
+					authUrl, state := c.GetAuthorizationURL(c.state)
 					if c.onTokenInvalid != nil {
 						if err := c.onTokenInvalid(state); err != nil {
 							return fmt.Errorf("token is invalid or expired but failed to execute token invalid callback : %w", err)
@@ -214,6 +219,9 @@ func (c *Client) RefreshAccessToken(ctx context.Context) error {
 
 	// Persist the new tokens if callback is set
 	if c.onTokenRefresh != nil {
+		if c.accessToken == "" {
+			return fmt.Errorf("failed to refresh tokens: access token is empty")
+		}
 		if err := c.onTokenRefresh(c.accessToken, c.refreshToken, c.tokenExpiry); err != nil {
 			return fmt.Errorf("failed to execute token refresh callback: %w", err)
 		}

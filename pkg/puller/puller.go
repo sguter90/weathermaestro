@@ -14,10 +14,10 @@ type Puller interface {
 	// Pull fetches weather data from the external provider
 	// ctx: context for cancellation and timeouts
 	// config: provider-specific configuration (API keys, station IDs, etc.)
-	Pull(ctx context.Context, config map[string]string) (map[string]models.SensorReading, *models.StationData, error)
+	Pull(ctx context.Context, config map[string]interface{}) (map[string]models.SensorReading, *models.StationData, error)
 
 	// ValidateConfig checks if the provided configuration is valid for this provider
-	ValidateConfig(config map[string]string) error
+	ValidateConfig(config map[string]interface{}) error
 }
 
 // PullerRegistry holds all registered data pullers

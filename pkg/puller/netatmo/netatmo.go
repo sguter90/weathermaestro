@@ -31,7 +31,7 @@ func (p *Puller) GetProviderType() string {
 	return "netatmo"
 }
 
-func (p *Puller) ValidateConfig(config map[string]string) error {
+func (p *Puller) ValidateConfig(config map[string]interface{}) error {
 	requiredFields := []string{"client_id", "client_secret", "redirect_uri", "device_id", "access_token", "refresh_token", "token_expiry"}
 	for _, field := range requiredFields {
 		if config[field] == "" {
@@ -41,12 +41,12 @@ func (p *Puller) ValidateConfig(config map[string]string) error {
 	return nil
 }
 
-func (p *Puller) Pull(ctx context.Context, config map[string]string) (map[string]models.SensorReading, *models.StationData, error) {
+func (p *Puller) Pull(ctx context.Context, config map[string]interface{}) (map[string]models.SensorReading, *models.StationData, error) {
 	if err := p.ValidateConfig(config); err != nil {
 		return nil, nil, err
 	}
 
-	p.deviceID = config["device_id"]
+	p.deviceID = config["device_id"].(string)
 
 	// Load the station ID from database
 	if err := p.loadStationID(ctx, p.deviceID); err != nil {
@@ -54,12 +54,9 @@ func (p *Puller) Pull(ctx context.Context, config map[string]string) (map[string
 	}
 
 	// Initialize client if needed
-	var err error
-	if p.client == nil {
-		err = p.initClient(config)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to initialize client: %w", err)
-		}
+	err := p.initClient(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
 
 	// Get station data
@@ -263,9 +260,9 @@ func (p *Puller) loadStationID(ctx context.Context, deviceId string) error {
 func (p *Puller) updateTokensInDatabase(ctx context.Context, accessToken, refreshToken string, expiry time.Time) error {
 	query := `UPDATE stations 
               SET config = config || jsonb_build_object(
-                    'access_token', $1,
-                    'refresh_token', $2,
-                    'token_expiry', $3
+                    'access_token', $1::text,
+                    'refresh_token', $2::text,
+                    'token_expiry', $3::text
                   ),
                   updated_at = CURRENT_TIMESTAMP 
               WHERE id = $4`
@@ -382,7 +379,7 @@ func (p *Puller) getSensorsFromDevice(device StationDataDevice) map[string]model
 	return sensors
 }
 
-func (p *Puller) initClient(config map[string]string) error {
+func (p *Puller) initClient(config map[string]interface{}) error {
 	onTokenInvalid := func(state string) error {
 		// Use a new context for database operations to avoid context cancellation from the caller
 		dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -391,12 +388,13 @@ func (p *Puller) initClient(config map[string]string) error {
 	}
 
 	p.client = NewClient(
-		config["client_id"],
-		config["client_secret"],
-		config["redirect_uri"],
+		config["client_id"].(string),
+		config["client_secret"].(string),
+		config["redirect_uri"].(string),
 	)
 
-	tokenExpiryString, ok := config["token_expiry"]
+	tokenExpiryString, ok := config["token_expiry"].(string)
+	fmt.Println(tokenExpiryString)
 	var tokenExpiry time.Time
 	var err error
 	if !ok || tokenExpiryString == "" {
@@ -406,16 +404,16 @@ func (p *Puller) initClient(config map[string]string) error {
 		tokenExpiry, err = time.Parse(time.RFC3339, tokenExpiryString)
 	}
 	if err != nil {
-		authUrl, state := p.client.GetAuthorizationURL()
-		err := onTokenInvalid(state)
-		if err != nil {
-			return err
+		authUrl, state := p.client.GetAuthorizationURL(config["state"].(string))
+		tokenCallbackErr := onTokenInvalid(state)
+		if tokenCallbackErr != nil {
+			return tokenCallbackErr
 		}
-		return fmt.Errorf("token expiry invalid - you need to re-authorize by visiting the authorization URL: %s", authUrl)
+		return fmt.Errorf("token expiry invalid '%s' you need to re-authorize by visiting the authorization URL: %s", err.Error(), authUrl)
 	}
 
-	p.client.SetAccessToken(config["access_token"])
-	p.client.SetRefreshToken(config["refresh_token"])
+	p.client.SetAccessToken(config["access_token"].(string))
+	p.client.SetRefreshToken(config["refresh_token"].(string))
 	p.client.SetTokenExpiry(tokenExpiry)
 	p.client.SetTokenRefreshCallback(func(accessToken, refreshToken string, expiry time.Time) error {
 		// Use a new context for database operations to avoid context cancellation from the caller

@@ -153,6 +153,41 @@ func (dm *DatabaseManager) LoadStations() ([]models.StationData, error) {
 	return stations, rows.Err()
 }
 
+// LoadStation loads specific station from the database
+func (dm *DatabaseManager) LoadStation(stationID uuid.UUID) (models.StationData, error) {
+	query := `
+		SELECT id, pass_key, station_type, model, freq, mode, service_name, config, updated_at
+        FROM stations
+        WHERE id = $1
+    `
+
+	var station models.StationData
+	var configJSON []byte
+	err := dm.QueryRowWithHealthCheck(context.Background(), query, stationID).Scan(
+		&station.ID,
+		&station.PassKey,
+		&station.StationType,
+		&station.Model,
+		&station.Freq,
+		&station.Mode,
+		&station.ServiceName,
+		&configJSON,
+		&station.UpdatedAt,
+	)
+
+	if err != nil {
+		return station, fmt.Errorf("failed to scan station %s", err.Error())
+	}
+
+	// ParseWeatherData config JSON
+	station.Config = make(map[string]interface{})
+	if err := json.Unmarshal(configJSON, &station.Config); err != nil {
+		log.Printf("Failed to parse config for station %s: %v", station.PassKey, err)
+	}
+
+	return station, err
+}
+
 // StoreWeatherData stores weather data for a station
 func (dm *DatabaseManager) StoreWeatherData(readings map[uuid.UUID]models.SensorReading) error {
 	for sensorID, reading := range readings {
@@ -282,21 +317,23 @@ func (dm *DatabaseManager) EnsureSensorsByRemoteId(stationID uuid.UUID, sensors 
 }
 
 // GetStationList retrieves a list of all stations
-func (dm *DatabaseManager) GetStationList() ([]models.StationListItem, error) {
+func (dm *DatabaseManager) GetStationList() ([]models.StationDetail, error) {
 	query := `
             SELECT DISTINCT 
                 s.id, 
                 s.pass_key, 
                 s.station_type, 
                 s.model,
-                MAX(wd.date_utc) as last_update
+                COUNT(sr.id) as total_readings,
+                MIN(sr.date_utc) as first_reading,
+                MAX(sr.date_utc) as last_reading
             FROM stations s
-            LEFT JOIN weather_data wd ON s.id = wd.station_id
-            GROUP BY s.id, s.pass_key, s.station_type, s.model
-            ORDER BY last_update DESC
+            LEFT JOIN sensors sens ON s.id = sens.station_id
+            LEFT JOIN sensor_readings sr ON sens.id = sr.sensor_id
+            GROUP BY s.id
         `
 
-	var stations []models.StationListItem
+	var stations []models.StationDetail
 
 	rows, err := dm.QueryWithHealthCheck(context.Background(), query)
 	if err != nil {
@@ -305,17 +342,28 @@ func (dm *DatabaseManager) GetStationList() ([]models.StationListItem, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var s models.StationListItem
+		var s models.StationDetail
+		var firstReading, lastReading sql.NullTime
 		err := rows.Scan(
 			&s.ID,
 			&s.PassKey,
 			&s.StationType,
 			&s.Model,
-			&s.LastUpdate,
+			&s.TotalReadings,
+			&firstReading,
+			&lastReading,
 		)
 		if err != nil {
 			log.Printf("❌ Failed to scan s: %v", err)
 			continue
+		}
+
+		// Convert sql.NullTime to *time.Time
+		if firstReading.Valid {
+			s.FirstReading = firstReading.Time
+		}
+		if lastReading.Valid {
+			s.LastReading = lastReading.Time
 		}
 
 		stations = append(stations, s)
@@ -324,7 +372,6 @@ func (dm *DatabaseManager) GetStationList() ([]models.StationListItem, error) {
 	return stations, nil
 }
 
-// GetStation retrieves detailed information about a specific station
 // GetStation retrieves detailed information about a specific station
 func (dm *DatabaseManager) GetStation(stationID uuid.UUID) (models.StationDetail, error) {
 	query := `
@@ -340,7 +387,7 @@ func (dm *DatabaseManager) GetStation(stationID uuid.UUID) (models.StationDetail
             LEFT JOIN sensors sens ON s.id = sens.station_id
             LEFT JOIN sensor_readings sr ON sens.id = sr.sensor_id
             WHERE s.id = $1
-            GROUP BY s.id, s.pass_key, s.station_type, s.model
+            GROUP BY s.id
         `
 
 	var station models.StationDetail

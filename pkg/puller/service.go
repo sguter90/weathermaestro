@@ -2,11 +2,13 @@ package puller
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/sguter90/weathermaestro/pkg/database"
+	"github.com/sguter90/weathermaestro/pkg/models"
 )
 
 // PullerService manages periodic data pulling from external providers
@@ -15,7 +17,7 @@ type PullerService struct {
 	pullerRegistry *PullerRegistry
 	interval       time.Duration
 	stopChan       chan struct{}
-	stationConfigs map[string]map[string]string // providerType -> config
+	stations       map[string]*models.StationData
 	mu             sync.RWMutex
 	ticker         *time.Ticker
 }
@@ -27,15 +29,15 @@ func NewPullerService(dbManager *database.DatabaseManager, registry *PullerRegis
 		pullerRegistry: registry,
 		interval:       interval,
 		stopChan:       make(chan struct{}),
-		stationConfigs: make(map[string]map[string]string),
+		stations:       make(map[string]*models.StationData),
 	}
 }
 
-// AddStationConfig adds a station configuration for pulling
-func (ps *PullerService) AddStationConfig(providerType string, config map[string]string) {
+// AddStation adds a station for pulling
+func (ps *PullerService) AddStation(data *models.StationData) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	ps.stationConfigs[providerType] = config
+	ps.stations[data.ID.String()] = data
 }
 
 // Start begins the periodic pulling service
@@ -76,19 +78,26 @@ func (ps *PullerService) pullAllProviders() {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
 
-	for providerType, config := range ps.stationConfigs {
-		p, ok := ps.pullerRegistry.Get(providerType)
-		if !ok {
-			log.Printf("⚠ Puller not found for provider type: %s", providerType)
+	for _, s := range ps.stations {
+		// fetch latest s config from database
+		s, err := ps.dbManager.LoadStation(s.ID)
+		if err != nil {
+			fmt.Printf("Failed to query s: %v\n", err)
 			continue
 		}
 
-		ps.pullFromProvider(p, config)
+		p, ok := ps.pullerRegistry.Get(s.ServiceName)
+		if !ok {
+			log.Printf("⚠ Puller not found for provider type: %s", s.ServiceName)
+			continue
+		}
+
+		ps.pullFromProvider(p, s.Config)
 	}
 }
 
 // pullFromProvider pulls data from a specific provider
-func (ps *PullerService) pullFromProvider(p Puller, config map[string]string) {
+func (ps *PullerService) pullFromProvider(p Puller, config map[string]interface{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

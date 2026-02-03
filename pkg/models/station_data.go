@@ -19,14 +19,6 @@ type StationData struct {
 	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
-type StationListItem struct {
-	ID          uuid.UUID  `json:"id"`
-	PassKey     string     `json:"pass_key"`
-	StationType string     `json:"station_type"`
-	Model       string     `json:"model"`
-	LastUpdate  *time.Time `json:"last_update"`
-}
-
 type StationDetail struct {
 	ID            uuid.UUID `json:"id"`
 	PassKey       string    `json:"pass_key"`

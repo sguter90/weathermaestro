@@ -80,7 +80,7 @@ func (rm *RouteManager) netatmoCallbackHandler(w http.ResponseWriter, r *http.Re
 
 	// Update config with access token
 	config["access_token"] = client.GetAccessToken()
-	config["refresh_token"] = client.GetAccessToken()
+	config["refresh_token"] = client.GetRefreshToken()
 	config["token_expiry"] = client.GetTokenExpiry().Format(time.RFC3339)
 
 	err = rm.dbManager.SetStationConfig(stationID, config)

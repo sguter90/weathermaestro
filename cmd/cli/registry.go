@@ -37,12 +37,7 @@ func InitRegistryManager(dbManager *database.DatabaseManager, stations []models.
 	// Add stations to puller service
 	for _, station := range stations {
 		if station.Mode == "pull" {
-			config := station.Config
-			stringConfig := make(map[string]string)
-			for k, v := range config {
-				stringConfig[k] = fmt.Sprintf("%v", v)
-			}
-			pullerService.AddStationConfig(station.ServiceName, stringConfig)
+			pullerService.AddStation(&station)
 		}
 	}
 

@@ -102,7 +102,7 @@ func (scc *ServiceConfigCollector) collectNetatmoConfig(mode string, stationID u
 			redirectURI,
 		)
 
-		authURL, state := client.GetAuthorizationURL()
+		authURL, state := client.GetAuthorizationURL("")
 		fmt.Println("\n  ⚠️  Please visit this URL to authorize the application:")
 		fmt.Printf("  %s\n\n", authURL)
 
