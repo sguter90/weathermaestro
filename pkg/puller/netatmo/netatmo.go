@@ -326,11 +326,13 @@ func (p *Puller) getSensorsFromDevice(device StationDataDevice) map[string]model
 	supportedSensors := GetSupportedSensors()
 
 	// Helper function to safely add sensor
-	addSensor := func(remoteID, sensorKey string) {
+	addSensor := func(remoteID, sensorKey string, location string, enabled bool) {
 		if sensor, exists := supportedSensors[sensorKey]; exists {
 			// Create a copy and set the RemoteID
 			sensorCopy := sensor
 			sensorCopy.RemoteID = remoteID
+			sensorCopy.Location = location
+			sensorCopy.Enabled = enabled
 			sensors[remoteID] = sensorCopy
 		} else {
 			log.Printf("⚠️  Warning: Sensor key '%s' not found in supported sensors", sensorKey)
@@ -338,38 +340,38 @@ func (p *Puller) getSensorsFromDevice(device StationDataDevice) map[string]model
 	}
 
 	// Check main device (NAMain) sensors
-	addSensor(device.ID+"-"+models.SensorTypeTemperature, "NAMain-"+models.SensorTypeTemperature)
-	addSensor(device.ID+"-"+models.SensorTypeHumidity, "NAMain-"+models.SensorTypeHumidity)
-	addSensor(device.ID+"-"+models.SensorTypePressure, "NAMain-"+models.SensorTypePressure)
-	addSensor(device.ID+"-"+models.SensorTypePressureAbsolute, "NAMain-"+models.SensorTypePressureAbsolute)
-	addSensor(device.ID+"-"+models.SensorTypeCO2, "NAMain-"+models.SensorTypeCO2)
-	addSensor(device.ID+"-"+models.SensorTypeNoise, "NAMain-"+models.SensorTypeNoise)
+	addSensor(device.ID+"-"+models.SensorTypeTemperature, "NAMain-"+models.SensorTypeTemperature, device.ModuleName, device.Reachable)
+	addSensor(device.ID+"-"+models.SensorTypeHumidity, "NAMain-"+models.SensorTypeHumidity, device.ModuleName, device.Reachable)
+	addSensor(device.ID+"-"+models.SensorTypePressure, "NAMain-"+models.SensorTypePressure, device.ModuleName, device.Reachable)
+	addSensor(device.ID+"-"+models.SensorTypePressureAbsolute, "NAMain-"+models.SensorTypePressureAbsolute, device.ModuleName, device.Reachable)
+	addSensor(device.ID+"-"+models.SensorTypeCO2, "NAMain-"+models.SensorTypeCO2, device.ModuleName, device.Reachable)
+	addSensor(device.ID+"-"+models.SensorTypeNoise, "NAMain-"+models.SensorTypeNoise, device.ModuleName, device.Reachable)
 
 	// Check each module
 	for _, module := range device.Modules {
 		switch module.Type {
 		case "NAModule1": // Outdoor module
-			addSensor(module.ID+"-"+models.SensorTypeTemperatureOutdoor, "NAModule1-"+models.SensorTypeTemperatureOutdoor)
-			addSensor(module.ID+"-"+models.SensorTypeHumidityOutdoor, "NAModule1-"+models.SensorTypeHumidityOutdoor)
+			addSensor(module.ID+"-"+models.SensorTypeTemperatureOutdoor, "NAModule1-"+models.SensorTypeTemperatureOutdoor, "Outdoor", module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeHumidityOutdoor, "NAModule1-"+models.SensorTypeHumidityOutdoor, "Outdoor", module.Reachable)
 
 		case "NAModule2": // Wind gauge
-			addSensor(module.ID+"-"+models.SensorTypeWindDirection, "NAModule2-"+models.SensorTypeWindDirection)
-			addSensor(module.ID+"-"+models.SensorTypeWindSpeed, "NAModule2-"+models.SensorTypeWindSpeed)
-			addSensor(module.ID+"-"+models.SensorTypeWindGust, "NAModule2-"+models.SensorTypeWindGust)
-			addSensor(module.ID+"-"+models.SensorTypeWindGustAngle, "NAModule2-"+models.SensorTypeWindGustAngle)
-			addSensor(module.ID+"-"+models.SensorTypeWindSpeedMaxDaily, "NAModule2-"+models.SensorTypeWindSpeedMaxDaily)
+			addSensor(module.ID+"-"+models.SensorTypeWindDirection, "NAModule2-"+models.SensorTypeWindDirection, "Outdoor", module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeWindSpeed, "NAModule2-"+models.SensorTypeWindSpeed, "Outdoor", module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeWindGust, "NAModule2-"+models.SensorTypeWindGust, "Outdoor", module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeWindGustAngle, "NAModule2-"+models.SensorTypeWindGustAngle, "Outdoor", module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeWindSpeedMaxDaily, "NAModule2-"+models.SensorTypeWindSpeedMaxDaily, "Outdoor", module.Reachable)
 
 		case "NAModule3": // Rain gauge
-			addSensor(module.ID+"-"+models.SensorTypeRainfallRate, "NAModule3-"+models.SensorTypeRainfallRate)
-			addSensor(module.ID+"-"+models.SensorTypeRainfallDaily, "NAModule3-"+models.SensorTypeRainfallDaily)
-			addSensor(module.ID+"-"+models.SensorTypeRainfallHourly, "NAModule3-"+models.SensorTypeRainfallHourly)
+			addSensor(module.ID+"-"+models.SensorTypeRainfallRate, "NAModule3-"+models.SensorTypeRainfallRate, "Outdoor", module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeRainfallDaily, "NAModule3-"+models.SensorTypeRainfallDaily, "Outdoor", module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeRainfallHourly, "NAModule3-"+models.SensorTypeRainfallHourly, "Outdoor", module.Reachable)
 
 		case "NAModule4": // Additional indoor module
-			addSensor(module.ID+"-"+models.SensorTypeTemperature, "NAModule4-"+models.SensorTypeTemperature)
-			addSensor(module.ID+"-"+models.SensorTypeHumidity, "NAModule4-"+models.SensorTypeHumidity)
-			addSensor(module.ID+"-"+models.SensorTypePressure, "NAModule4-"+models.SensorTypePressure)
-			addSensor(module.ID+"-"+models.SensorTypeCO2, "NAModule4-"+models.SensorTypeCO2)
-			addSensor(module.ID+"-"+models.SensorTypeNoise, "NAModule4-"+models.SensorTypeNoise)
+			addSensor(module.ID+"-"+models.SensorTypeTemperature, "NAModule4-"+models.SensorTypeTemperature, module.ModuleName, module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeHumidity, "NAModule4-"+models.SensorTypeHumidity, module.ModuleName, module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypePressure, "NAModule4-"+models.SensorTypePressure, module.ModuleName, module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeCO2, "NAModule4-"+models.SensorTypeCO2, module.ModuleName, module.Reachable)
+			addSensor(module.ID+"-"+models.SensorTypeNoise, "NAModule4-"+models.SensorTypeNoise, module.ModuleName, module.Reachable)
 
 		default:
 			log.Printf("⚠️  Warning: Unknown module type: %s", module.Type)
@@ -394,7 +396,6 @@ func (p *Puller) initClient(config map[string]interface{}) error {
 	)
 
 	tokenExpiryString, ok := config["token_expiry"].(string)
-	fmt.Println(tokenExpiryString)
 	var tokenExpiry time.Time
 	var err error
 	if !ok || tokenExpiryString == "" {
