@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/sguter90/weathermaestro/pkg/database"
@@ -29,6 +30,11 @@ func (rm *RouteManager) Setup() {
 	r.Use(rm.corsMiddleware)
 	r.Use(rm.contextMiddleware)
 
+	// Global OPTIONS handler - catches all preflight requests
+	r.Methods("OPTIONS").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// Health check
 	r.HandleFunc("/health", rm.healthHandler).Methods("GET")
 
@@ -54,6 +60,10 @@ func (rm *RouteManager) setupPusherEndpoints(r *mux.Router) {
 
 // setupAPIRoutes configures all API v1 routes
 func (rm *RouteManager) setupAPIRoutes(api *mux.Router) {
+	// Public auth endpoints (no auth required)
+	api.HandleFunc("/auth/login", rm.handleLogin).Methods("POST")
+	api.HandleFunc("/auth/logout", rm.handleLogout).Methods("POST")
+
 	// Stations
 	api.HandleFunc("/stations", rm.getStationsHandler).Methods("GET")
 	api.HandleFunc("/stations/{id}", rm.getStationHandler).Methods("GET")
@@ -64,6 +74,23 @@ func (rm *RouteManager) setupAPIRoutes(api *mux.Router) {
 
 	// Readings
 	api.HandleFunc("/readings", rm.getReadingsHandler).Methods("GET")
+
+	// Dashboards
+	api.HandleFunc("/dashboards", rm.handleGetPublicDashboards).Methods("GET")
+	api.HandleFunc("/dashboards/{id}", rm.handleGetDashboard).Methods("GET")
+
+	// Protected endpoints (auth required)
+	protected := api.PathPrefix("").Subrouter()
+	protected.Use(rm.JWTAuthMiddleware)
+
+	// User info
+	protected.HandleFunc("/auth/me", rm.handleMe).Methods("GET")
+	protected.HandleFunc("/auth/refresh", rm.handleRefreshToken).Methods("POST")
+
+	// Dashboard management
+	protected.HandleFunc("/dashboards", rm.handleCreateDashboard).Methods("POST")
+	protected.HandleFunc("/dashboards/{id}", rm.handleUpdateDashboard).Methods("PUT")
+	protected.HandleFunc("/dashboards/{id}", rm.handleDeleteDashboard).Methods("DELETE")
 }
 
 // setupOAuthRoutes configures OAuth callback routes

@@ -31,6 +31,11 @@ func init() {
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
+	jwtSecret := getEnv("JWT_SECRET", "")
+	if jwtSecret == "" || jwtSecret == "change_me_in_production" {
+		return errors.New("JWT_SECRET environment variable is not set or has an invalid value")
+	}
+
 	dbManager := cmd.Context().Value("dbManager").(*database.DatabaseManager)
 
 	// Run migrations
