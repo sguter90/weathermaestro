@@ -2,6 +2,7 @@ package pusher
 
 import (
 	"net/url"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/sguter90/weathermaestro/pkg/models"
@@ -27,6 +28,7 @@ type Pusher interface {
 
 // Registry holds all registered pushers
 type Registry struct {
+	mu      sync.RWMutex
 	pushers map[string]Pusher
 }
 
@@ -39,17 +41,30 @@ func NewRegistry() *Registry {
 
 // Register adds a pusher to the registry
 func (r *Registry) Register(p Pusher) {
+	if p == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.pushers[p.GetStationType()] = p
 }
 
 // Get retrieves a pusher by station type
 func (r *Registry) Get(stationType string) (Pusher, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	p, ok := r.pushers[stationType]
 	return p, ok
 }
 
 // All returns all registered pushers
 func (r *Registry) All() []Pusher {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	pushers := make([]Pusher, 0, len(r.pushers))
 	for _, p := range r.pushers {
 		pushers = append(pushers, p)

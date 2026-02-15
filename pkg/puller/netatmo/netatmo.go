@@ -24,7 +24,6 @@ func NewPuller(dbManger *database.DatabaseManager) *Puller {
 	return &Puller{
 		dbManager: dbManger,
 	}
-	// replace DB with dbManager manager
 }
 
 func (p *Puller) GetProviderType() string {

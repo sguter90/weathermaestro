@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"io"
 	"log"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ type Migration struct {
 type MigrationsRunner struct {
 	db         *sql.DB
 	migrations []Migration
+	logger     *log.Logger
 }
 
 // NewMigrationsRunner creates a new migration runner
@@ -30,6 +32,7 @@ func NewMigrationsRunner(db *sql.DB) (*MigrationsRunner, error) {
 	runner := &MigrationsRunner{
 		db:         db,
 		migrations: []Migration{},
+		logger:     log.Default(),
 	}
 
 	if err := runner.loadMigrations(); err != nil {
@@ -37,6 +40,16 @@ func NewMigrationsRunner(db *sql.DB) (*MigrationsRunner, error) {
 	}
 
 	return runner, nil
+}
+
+// EnableLogging enables migration logging
+func (r *MigrationsRunner) EnableLogging() {
+	r.logger.SetOutput(log.Writer())
+}
+
+// DisableLogging disables migration logging
+func (r *MigrationsRunner) DisableLogging() {
+	r.logger.SetOutput(io.Discard)
 }
 
 // loadMigrations loads all .up.sql migration files from the embedded filesystem
@@ -67,7 +80,7 @@ func (r *MigrationsRunner) loadMigrations() error {
 
 		var version int
 		if _, err := fmt.Sscanf(parts[0], "%d", &version); err != nil {
-			log.Printf("Warning: skipping invalid migration file: %s", filename)
+			r.logger.Printf("Warning: skipping invalid migration file: %s", filename)
 			continue
 		}
 
@@ -150,18 +163,18 @@ func (r *MigrationsRunner) Run() error {
 	}
 
 	if pendingCount == 0 {
-		log.Println("No pending migrations")
+		r.logger.Println("No pending migrations")
 		return nil
 	}
 
-	log.Printf("Found %d pending migration(s)", pendingCount)
+	r.logger.Printf("Found %d pending migration(s)", pendingCount)
 
 	for _, migration := range r.migrations {
 		if applied[migration.Version] {
 			continue
 		}
 
-		log.Printf("Applying migration %d: %s", migration.Version, migration.Name)
+		r.logger.Printf("Applying migration %d: %s", migration.Version, migration.Name)
 
 		// Start transaction
 		tx, err := r.db.Begin()
@@ -189,9 +202,9 @@ func (r *MigrationsRunner) Run() error {
 			return fmt.Errorf("failed to commit migration %d: %w", migration.Version, err)
 		}
 
-		log.Printf("✓ Successfully applied migration %d: %s", migration.Version, migration.Name)
+		r.logger.Printf("✓ Successfully applied migration %d: %s", migration.Version, migration.Name)
 	}
 
-	log.Println("All migrations completed successfully")
+	r.logger.Println("All migrations completed successfully")
 	return nil
 }

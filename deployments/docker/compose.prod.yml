@@ -34,6 +34,7 @@ services:
       SERVER_PORT: 8059
       SERVER_ALLOWED_ORIGINS: ${SERVER_ALLOWED_ORIGINS:-http://localhost:8059}
       TZ: ${TZ:-Europe/Berlin}
+      JWT_SECRET: ${JWT_SECRET}
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,6 +54,7 @@ services:
       - "${UI_PORT:-8080}:80"
     environment:
       APP_NAME: "${UI_APP_NAME:-WeatherMaestro}"
+      APP_DESCRIPTION: "${UI_APP_DESCRIPTION}"
       API_BASE_URL: "${SERVER_PUBLIC_URL}"
       TZ: ${TZ:-Europe/Berlin}
     depends_on:

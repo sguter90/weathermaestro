@@ -85,16 +85,32 @@ func (p *ReadingQueryParams) Validate() error {
 		return fmt.Errorf("cannot use 'aggregate' and 'latest' parameters together")
 	}
 
+	// Validate limit
+	if p.Limit < 1 || p.Limit > 10000 {
+		return fmt.Errorf("limit must be between 1 and 10000")
+	}
+
+	// Validate page
+	if p.Page < 1 {
+		return fmt.Errorf("page must be greater than 0")
+	}
+
+	if p.Order != "asc" && p.Order != "desc" {
+		return fmt.Errorf("invalid order: %s (valid: asc, desc)", p.Order)
+	}
+
 	return nil
 }
 
 type AggregatedReading struct {
-	SensorID uuid.UUID `json:"sensor_id"`
-	DateUTC  time.Time `json:"dateutc"`
-	Value    float64   `json:"value"`
-	Count    int       `json:"count,omitempty"`
-	MinValue float64   `json:"min_value,omitempty"`
-	MaxValue float64   `json:"max_value,omitempty"`
+	DateUTC    time.Time `json:"dateutc"`
+	SensorID   uuid.UUID `json:"sensor_id,omitempty"`
+	SensorType string    `json:"sensor_type,omitempty"`
+	Location   string    `json:"location,omitempty"`
+	Value      float64   `json:"value"`
+	Count      int       `json:"count,omitempty"`
+	MinValue   float64   `json:"min_value,omitempty"`
+	MaxValue   float64   `json:"max_value,omitempty"`
 }
 
 type ReadingsResponse struct {

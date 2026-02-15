@@ -204,9 +204,3 @@ var SensorTypeRegistry = map[string]SensorTypeInfo{
 		Unit:     "dB",
 	},
 }
-
-// GetSensorType returns the metadata for a sensor type
-func GetSensorType(name string) (SensorTypeInfo, bool) {
-	info, ok := SensorTypeRegistry[name]
-	return info, ok
-}

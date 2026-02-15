@@ -189,9 +189,9 @@ func (dm *DatabaseManager) GetReadings(params models.ReadingQueryParams) (*model
 
 // GetAggregatedReadings retrieves aggregated readings based on time intervals
 func (dm *DatabaseManager) GetAggregatedReadings(params models.ReadingQueryParams) (*models.ReadingsResponse, error) {
-	// Convert aggregate interval to PostgreSQL interval
-	interval := convertAggregateInterval(params.Aggregate)
-	if interval == "" {
+	// Build time bucket expression
+	timeBucketExpr := convertAggregateInterval(params.Aggregate)
+	if timeBucketExpr == "" {
 		return nil, fmt.Errorf("invalid aggregate interval: %s", params.Aggregate)
 	}
 
@@ -243,36 +243,43 @@ func (dm *DatabaseManager) GetAggregatedReadings(params models.ReadingQueryParam
 		argCount++
 	}
 
-	// Determine GROUP BY clause
-	groupByClause := ""
-	if params.GroupBy != "" {
-		switch params.GroupBy {
-		case "sensor":
-			groupByClause = "sr.sensor_id"
-		case "sensor_type":
-			groupByClause = "s.sensor_type"
-		case "location":
-			groupByClause = "s.location"
-		default:
-			groupByClause = "sr.sensor_id"
-		}
-	} else {
+	// Determine GROUP BY clause and SELECT columns based on grouping
+	var groupByClause string
+	var selectGroupColumn string
+	var groupColumnName string
+
+	switch params.GroupBy {
+	case "sensor":
 		groupByClause = "sr.sensor_id"
+		selectGroupColumn = "sr.sensor_id"
+		groupColumnName = "sensor_id"
+	case "sensor_type":
+		groupByClause = "s.sensor_type"
+		selectGroupColumn = "s.sensor_type"
+		groupColumnName = "sensor_type"
+	case "location":
+		groupByClause = "s.location"
+		selectGroupColumn = "s.location"
+		groupColumnName = "location"
+	default:
+		groupByClause = "sr.sensor_id"
+		selectGroupColumn = "sr.sensor_id"
+		groupColumnName = "sensor_id"
 	}
 
 	// Get total count of aggregated buckets (before LIMIT/OFFSET)
 	countQuery := fmt.Sprintf(`
         SELECT COUNT(*) FROM (
             SELECT 
-                date_trunc('%s', sr.date_utc) as time_bucket,
-                %s
+                %s as time_bucket,
+                %s as %s
             FROM sensor_readings sr
             JOIN sensors s ON sr.sensor_id = s.id
             WHERE 1=1
             %s
             GROUP BY time_bucket, %s
         ) as subquery
-    `, interval, groupByClause, whereClause, groupByClause)
+    `, timeBucketExpr, selectGroupColumn, groupColumnName, whereClause, groupByClause)
 
 	var totalCount int
 	err := dm.QueryRowWithHealthCheck(context.Background(), countQuery, args...).Scan(&totalCount)
@@ -281,11 +288,11 @@ func (dm *DatabaseManager) GetAggregatedReadings(params models.ReadingQueryParam
 		return nil, fmt.Errorf("failed to get total count: %w", err)
 	}
 
-	// Build main aggregation query
+	// Build main aggregation query with appropriate SELECT columns
 	query := fmt.Sprintf(`
         SELECT 
-            date_trunc('%s', sr.date_utc) as time_bucket,
-            sr.sensor_id,
+            %s as time_bucket,
+            %s as group_column,
             %s as value,
             COUNT(*) as count,
             MIN(sr.value) as min_value,
@@ -293,11 +300,11 @@ func (dm *DatabaseManager) GetAggregatedReadings(params models.ReadingQueryParam
         FROM sensor_readings sr
         JOIN sensors s ON sr.sensor_id = s.id
         WHERE 1=1
-    `, interval, aggFunc)
+    `, timeBucketExpr, selectGroupColumn, aggFunc)
 
 	query += whereClause
 
-	// Group by time bucket and sensor info
+	// Group by time bucket and the grouping column
 	query += fmt.Sprintf(" GROUP BY time_bucket, %s", groupByClause)
 
 	// Order by time bucket
@@ -320,17 +327,55 @@ func (dm *DatabaseManager) GetAggregatedReadings(params models.ReadingQueryParam
 	for rows.Next() {
 		var reading models.AggregatedReading
 
-		err := rows.Scan(
-			&reading.DateUTC,
-			&reading.SensorID,
-			&reading.Value,
-			&reading.Count,
-			&reading.MinValue,
-			&reading.MaxValue,
-		)
-		if err != nil {
-			log.Printf("Failed to scan aggregated reading: %v", err)
-			continue
+		// Scan based on group type
+		switch groupColumnName {
+		case "sensor_type":
+			var sensorType string
+			err := rows.Scan(
+				&reading.DateUTC,
+				&sensorType,
+				&reading.Value,
+				&reading.Count,
+				&reading.MinValue,
+				&reading.MaxValue,
+			)
+			if err != nil {
+				log.Printf("Failed to scan aggregated reading: %v", err)
+				continue
+			}
+			reading.SensorType = sensorType
+
+		case "location":
+			var location string
+			err := rows.Scan(
+				&reading.DateUTC,
+				&location,
+				&reading.Value,
+				&reading.Count,
+				&reading.MinValue,
+				&reading.MaxValue,
+			)
+			if err != nil {
+				log.Printf("Failed to scan aggregated reading: %v", err)
+				continue
+			}
+			reading.Location = location
+
+		default:
+			var sensorID uuid.UUID
+			err := rows.Scan(
+				&reading.DateUTC,
+				&sensorID,
+				&reading.Value,
+				&reading.Count,
+				&reading.MinValue,
+				&reading.MaxValue,
+			)
+			if err != nil {
+				log.Printf("Failed to scan aggregated reading: %v", err)
+				continue
+			}
+			reading.SensorID = sensorID
 		}
 
 		readings = append(readings, reading)
@@ -353,96 +398,23 @@ func (dm *DatabaseManager) GetAggregatedReadings(params models.ReadingQueryParam
 	}, rows.Err()
 }
 
-// GetLatestReadings retrieves the latest reading for each sensor matching the filters
-func (dm *DatabaseManager) GetLatestReadings(params models.ReadingQueryParams) ([]models.SensorReading, error) {
-	query := `
-        SELECT DISTINCT ON (sr.sensor_id)
-            sr.id,
-            sr.sensor_id,
-            sr.value,
-            sr.date_utc
-        FROM sensor_readings sr
-        JOIN sensors s ON sr.sensor_id = s.id
-        WHERE 1=1
-    `
-
-	args := []interface{}{}
-	argCount := 1
-
-	// Build WHERE clause dynamically
-	if params.StationID != nil {
-		query += fmt.Sprintf(" AND s.station_id = $%d", argCount)
-		args = append(args, *params.StationID)
-		argCount++
-	}
-
-	if len(params.SensorIDs) > 0 {
-		placeholders := []string{}
-		for _, sensorID := range params.SensorIDs {
-			placeholders = append(placeholders, fmt.Sprintf("$%d", argCount))
-			args = append(args, sensorID)
-			argCount++
-		}
-		query += fmt.Sprintf(" AND sr.sensor_id IN (%s)", strings.Join(placeholders, ","))
-	}
-
-	if params.SensorType != "" {
-		query += fmt.Sprintf(" AND s.sensor_type = $%d", argCount)
-		args = append(args, params.SensorType)
-		argCount++
-	}
-
-	if params.Location != "" {
-		query += fmt.Sprintf(" AND s.location = $%d", argCount)
-		args = append(args, params.Location)
-		argCount++
-	}
-
-	// Order by sensor_id first (for DISTINCT ON), then by date_utc DESC to get latest
-	query += " ORDER BY sr.sensor_id, sr.date_utc DESC"
-
-	rows, err := dm.QueryWithHealthCheck(context.Background(), query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	readings := []models.SensorReading{}
-	for rows.Next() {
-		var reading models.SensorReading
-		err := rows.Scan(
-			&reading.ID,
-			&reading.SensorID,
-			&reading.Value,
-			&reading.DateUTC,
-		)
-		if err != nil {
-			log.Printf("Failed to scan reading: %v", err)
-			continue
-		}
-		readings = append(readings, reading)
-	}
-
-	return readings, rows.Err()
-}
-
-// convertAggregateInterval converts user-friendly interval to PostgreSQL interval
+// convertAggregateInterval converts user-friendly interval to PostgreSQL time bucket expression
 func convertAggregateInterval(interval string) string {
 	intervals := map[string]string{
-		"1m":  "minute",
-		"5m":  "5 minutes",
-		"15m": "15 minutes",
-		"30m": "30 minutes",
-		"1h":  "hour",
-		"6h":  "6 hours",
-		"12h": "12 hours",
-		"1d":  "day",
-		"1w":  "week",
-		"1M":  "month",
+		"1m":  "date_trunc('minute', sr.date_utc)",
+		"5m":  "to_timestamp(floor((extract('epoch' from sr.date_utc) / 300 )) * 300)",
+		"15m": "to_timestamp(floor((extract('epoch' from sr.date_utc) / 900 )) * 900)",
+		"30m": "to_timestamp(floor((extract('epoch' from sr.date_utc) / 1800 )) * 1800)",
+		"1h":  "date_trunc('hour', sr.date_utc)",
+		"6h":  "to_timestamp(floor((extract('epoch' from sr.date_utc) / 21600 )) * 21600)",
+		"12h": "to_timestamp(floor((extract('epoch' from sr.date_utc) / 43200 )) * 43200)",
+		"1d":  "date_trunc('day', sr.date_utc)",
+		"1w":  "date_trunc('week', sr.date_utc)",
+		"1M":  "date_trunc('month', sr.date_utc)",
 	}
 
-	if pgInterval, ok := intervals[interval]; ok {
-		return pgInterval
+	if expr, ok := intervals[interval]; ok {
+		return expr
 	}
 	return ""
 }
