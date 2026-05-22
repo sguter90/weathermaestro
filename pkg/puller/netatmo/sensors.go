@@ -1,150 +1,134 @@
 package netatmo
 
-import "github.com/sguter90/weathermaestro/pkg/models"
+import (
+	"sort"
+	"strings"
 
-func GetSupportedSensors() map[string]models.Sensor {
-	sensors := make(map[string]models.Sensor)
-	// Indoor Module (Main Device)
-	sensors["NAMain-"+models.SensorTypeTemperature] = models.Sensor{
-		Name:       "Temperature (Indoor)",
-		SensorType: models.SensorTypeTemperature,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAMain-"+models.SensorTypeHumidity] = models.Sensor{
-		Name:       "Humidity (Indoor)",
-		SensorType: models.SensorTypeHumidity,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAMain-"+models.SensorTypePressure] = models.Sensor{
-		Name:       "Pressure",
-		SensorType: models.SensorTypePressure,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAMain-"+models.SensorTypePressureAbsolute] = models.Sensor{
-		Name:       "Pressure (Absolute)",
-		SensorType: models.SensorTypePressureAbsolute,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAMain-"+models.SensorTypeCO2] = models.Sensor{
-		Name:       "CO2",
-		SensorType: models.SensorTypeCO2,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAMain-"+models.SensorTypeNoise] = models.Sensor{
-		Name:       "Noise",
-		SensorType: models.SensorTypeNoise,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
+	"github.com/sguter90/weathermaestro/pkg/models"
+)
 
-	// Outdoor Module (NAModule1)
-	sensors["NAModule1-"+models.SensorTypeTemperatureOutdoor] = models.Sensor{
-		Name:       "Temperature (Outdoor)",
-		SensorType: models.SensorTypeTemperatureOutdoor,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
-	sensors["NAModule1-"+models.SensorTypeHumidityOutdoor] = models.Sensor{
-		Name:       "Humidity (Outdoor)",
-		SensorType: models.SensorTypeHumidityOutdoor,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
+// SupportedSensor describes a sensor this provider knows about. NetatmoType is
+// the type identifier as expected by the Netatmo getmeasure endpoint, or empty
+// for sensors whose value is not exposed via getmeasure (e.g. AbsolutePressure).
+type SupportedSensor struct {
+	Sensor      models.Sensor
+	NetatmoType string
+}
 
-	// Wind Gauge (NAModule2)
-	sensors["NAModule2-"+models.SensorTypeWindDirection] = models.Sensor{
-		Name:       "Wind Direction",
-		SensorType: models.SensorTypeWindDirection,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
-	sensors["NAModule2-"+models.SensorTypeWindSpeed] = models.Sensor{
-		Name:       "Wind Speed",
-		SensorType: models.SensorTypeWindSpeed,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
-	sensors["NAModule2-"+models.SensorTypeWindGust] = models.Sensor{
-		Name:       "Wind Gust",
-		SensorType: models.SensorTypeWindGust,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
-	sensors["NAModule2-"+models.SensorTypeWindGustAngle] = models.Sensor{
-		Name:       "Wind Gust Angle",
-		SensorType: models.SensorTypeWindGustAngle,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
-	sensors["NAModule2-"+models.SensorTypeWindSpeedMaxDaily] = models.Sensor{
-		Name:       "Max Wind Speed (Daily)",
-		SensorType: models.SensorTypeWindSpeedMaxDaily,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
+// GetSupportedSensors returns the catalog of sensors this provider can produce.
+// Keys are "<ModuleType>-<SensorType>" — the same shape used as the sensor's
+// remote-ID suffix.
+func GetSupportedSensors() map[string]SupportedSensor {
+	return map[string]SupportedSensor{
+		// Indoor Module (Main Device, NAMain)
+		"NAMain-" + models.SensorTypeTemperature: {
+			Sensor:      models.Sensor{Name: "Temperature (Indoor)", SensorType: models.SensorTypeTemperature, Location: "Indoor", Enabled: true},
+			NetatmoType: "temperature",
+		},
+		"NAMain-" + models.SensorTypeHumidity: {
+			Sensor:      models.Sensor{Name: "Humidity (Indoor)", SensorType: models.SensorTypeHumidity, Location: "Indoor", Enabled: true},
+			NetatmoType: "humidity",
+		},
+		"NAMain-" + models.SensorTypePressure: {
+			Sensor:      models.Sensor{Name: "Pressure", SensorType: models.SensorTypePressure, Location: "Indoor", Enabled: true},
+			NetatmoType: "pressure",
+		},
+		"NAMain-" + models.SensorTypeCO2: {
+			Sensor:      models.Sensor{Name: "CO2", SensorType: models.SensorTypeCO2, Location: "Indoor", Enabled: true},
+			NetatmoType: "co2",
+		},
+		"NAMain-" + models.SensorTypeNoise: {
+			Sensor:      models.Sensor{Name: "Noise", SensorType: models.SensorTypeNoise, Location: "Indoor", Enabled: true},
+			NetatmoType: "noise",
+		},
 
-	// Rain Gauge (NAModule3)
-	sensors["NAModule3-"+models.SensorTypeRainfallRate] = models.Sensor{
-		Name:       "Rain Rate",
-		SensorType: models.SensorTypeRainfallRate,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
-	sensors["NAModule3-"+models.SensorTypeRainfallDaily] = models.Sensor{
-		Name:       "Rain (24h)",
-		SensorType: models.SensorTypeRainfallDaily,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
-	sensors["NAModule3-"+models.SensorTypeRainfallHourly] = models.Sensor{
-		Name:       "Rain (1h)",
-		SensorType: models.SensorTypeRainfallHourly,
-		Location:   "Outdoor",
-		Enabled:    true,
-	}
+		// Outdoor Module (NAModule1)
+		"NAModule1-" + models.SensorTypeTemperatureOutdoor: {
+			Sensor:      models.Sensor{Name: "Temperature (Outdoor)", SensorType: models.SensorTypeTemperatureOutdoor, Location: "Outdoor", Enabled: true},
+			NetatmoType: "temperature",
+		},
+		"NAModule1-" + models.SensorTypeHumidityOutdoor: {
+			Sensor:      models.Sensor{Name: "Humidity (Outdoor)", SensorType: models.SensorTypeHumidityOutdoor, Location: "Outdoor", Enabled: true},
+			NetatmoType: "humidity",
+		},
 
-	// Additional Indoor Module (NAModule4)
-	sensors["NAModule4-"+models.SensorTypeTemperature] = models.Sensor{
-		Name:       "Temperature (Additional Indoor)",
-		SensorType: models.SensorTypeTemperature,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAModule4-"+models.SensorTypeHumidity] = models.Sensor{
-		Name:       "Humidity (Additional Indoor)",
-		SensorType: models.SensorTypeHumidity,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAModule4-"+models.SensorTypePressure] = models.Sensor{
-		Name:       "Pressure (Additional Indoor)",
-		SensorType: models.SensorTypePressure,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAModule4-"+models.SensorTypeCO2] = models.Sensor{
-		Name:       "CO2 (Additional Indoor)",
-		SensorType: models.SensorTypeCO2,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAModule4-"+models.SensorTypeCO2] = models.Sensor{
-		Name:       "CO2 (Additional Indoor)",
-		SensorType: models.SensorTypeCO2,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
-	sensors["NAModule4-"+models.SensorTypeNoise] = models.Sensor{
-		Name:       "Noise (Additional Indoor)",
-		SensorType: models.SensorTypeNoise,
-		Location:   "Indoor",
-		Enabled:    true,
-	}
+		// Wind Gauge (NAModule2)
+		"NAModule2-" + models.SensorTypeWindDirection: {
+			Sensor:      models.Sensor{Name: "Wind Direction", SensorType: models.SensorTypeWindDirection, Location: "Outdoor", Enabled: true},
+			NetatmoType: "windangle",
+		},
+		"NAModule2-" + models.SensorTypeWindSpeed: {
+			Sensor:      models.Sensor{Name: "Wind Speed", SensorType: models.SensorTypeWindSpeed, Location: "Outdoor", Enabled: true},
+			NetatmoType: "windstrength",
+		},
+		"NAModule2-" + models.SensorTypeWindGust: {
+			Sensor:      models.Sensor{Name: "Wind Gust", SensorType: models.SensorTypeWindGust, Location: "Outdoor", Enabled: true},
+			NetatmoType: "guststrength",
+		},
+		"NAModule2-" + models.SensorTypeWindGustAngle: {
+			Sensor:      models.Sensor{Name: "Wind Gust Angle", SensorType: models.SensorTypeWindGustAngle, Location: "Outdoor", Enabled: true},
+			NetatmoType: "gustangle",
+		},
 
-	return sensors
+		// Rain Gauge (NAModule3)
+		"NAModule3-" + models.SensorTypeRainfallRate: {
+			Sensor:      models.Sensor{Name: "Rain Rate", SensorType: models.SensorTypeRainfallRate, Location: "Outdoor", Enabled: true},
+			NetatmoType: "rain",
+		},
+		"NAModule3-" + models.SensorTypeRainfallDaily: {
+			Sensor:      models.Sensor{Name: "Rain (24h)", SensorType: models.SensorTypeRainfallDaily, Location: "Outdoor", Enabled: true},
+			NetatmoType: "sum_rain",
+		},
+
+		// Additional Indoor Module (NAModule4)
+		"NAModule4-" + models.SensorTypeTemperature: {
+			Sensor:      models.Sensor{Name: "Temperature (Additional Indoor)", SensorType: models.SensorTypeTemperature, Location: "Indoor", Enabled: true},
+			NetatmoType: "temperature",
+		},
+		"NAModule4-" + models.SensorTypeHumidity: {
+			Sensor:      models.Sensor{Name: "Humidity (Additional Indoor)", SensorType: models.SensorTypeHumidity, Location: "Indoor", Enabled: true},
+			NetatmoType: "humidity",
+		},
+		"NAModule4-" + models.SensorTypePressure: {
+			Sensor:      models.Sensor{Name: "Pressure (Additional Indoor)", SensorType: models.SensorTypePressure, Location: "Indoor", Enabled: true},
+			NetatmoType: "pressure",
+		},
+		"NAModule4-" + models.SensorTypeCO2: {
+			Sensor:      models.Sensor{Name: "CO2 (Additional Indoor)", SensorType: models.SensorTypeCO2, Location: "Indoor", Enabled: true},
+			NetatmoType: "co2",
+		},
+		"NAModule4-" + models.SensorTypeNoise: {
+			Sensor:      models.Sensor{Name: "Noise (Additional Indoor)", SensorType: models.SensorTypeNoise, Location: "Indoor", Enabled: true},
+			NetatmoType: "noise",
+		},
+	}
+}
+
+// netatmoMeasureMapping pairs a Netatmo getmeasure data type with the sensor
+// type that receives the value. Position in a slice = position in the API response.
+type netatmoMeasureMapping struct {
+	NetatmoType string
+	SensorType  string
+}
+
+// getMeasureMappingsFor returns the (NetatmoType, SensorType) pairs for sensors
+// belonging to the given module type (e.g. "NAMain", "NAModule1"). Sensors
+// without a NetatmoType (not exposed by getmeasure) are filtered out. The order
+// is deterministic so the API response can be mapped positionally.
+func getMeasureMappingsFor(moduleType string) []netatmoMeasureMapping {
+	prefix := moduleType + "-"
+	var mappings []netatmoMeasureMapping
+	for key, s := range GetSupportedSensors() {
+		if !strings.HasPrefix(key, prefix) || s.NetatmoType == "" {
+			continue
+		}
+		mappings = append(mappings, netatmoMeasureMapping{
+			NetatmoType: s.NetatmoType,
+			SensorType:  s.Sensor.SensorType,
+		})
+	}
+	sort.Slice(mappings, func(i, j int) bool {
+		return mappings[i].NetatmoType < mappings[j].NetatmoType
+	})
+	return mappings
 }

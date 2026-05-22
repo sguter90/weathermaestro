@@ -83,152 +83,79 @@ func (p *Puller) Pull(ctx context.Context, config map[string]interface{}) (map[s
 		return nil, nil, err
 	}
 
-	// Parse indoor data (from main device)
-	dateUTC := p.unixToTime(device.DashboardData.TimeUTC)
-
 	sensorReadings := make(map[string]models.SensorReading)
 
-	var remoteId string
-
-	remoteId = device.ID + "-" + models.SensorTypeTemperature
-	sensorReadings[remoteId] = models.SensorReading{
-		SensorID: sensors[remoteId].ID,
-		Value:    device.DashboardData.Temperature,
-		DateUTC:  dateUTC,
+	// Main device readings.
+	if err := p.pullMeasureReadings(ctx, device.Type, device.ID, "", sensors, sensorReadings); err != nil {
+		log.Printf("Failed to pull main device readings: %v", err)
 	}
 
-	remoteId = device.ID + "-" + models.SensorTypeHumidity
-	sensorReadings[remoteId] = models.SensorReading{
-		SensorID: sensors[remoteId].ID,
-		Value:    float64(device.DashboardData.Humidity),
-		DateUTC:  dateUTC,
-	}
-
-	remoteId = device.ID + "-" + models.SensorTypePressure
-	sensorReadings[remoteId] = models.SensorReading{
-		SensorID: sensors[remoteId].ID,
-		Value:    device.DashboardData.Pressure,
-		DateUTC:  dateUTC,
-	}
-
-	remoteId = device.ID + "-" + models.SensorTypePressureAbsolute
-	sensorReadings[remoteId] = models.SensorReading{
-		SensorID: sensors[remoteId].ID,
-		Value:    device.DashboardData.AbsolutePressure,
-		DateUTC:  dateUTC,
-	}
-
-	remoteId = device.ID + "-" + models.SensorTypeCO2
-	sensorReadings[remoteId] = models.SensorReading{
-		SensorID: sensors[remoteId].ID,
-		Value:    float64(device.DashboardData.CO2),
-		DateUTC:  dateUTC,
-	}
-
-	remoteId = device.ID + "-" + models.SensorTypeNoise
-	sensorReadings[remoteId] = models.SensorReading{
-		SensorID: sensors[remoteId].ID,
-		Value:    float64(device.DashboardData.Noise),
-		DateUTC:  dateUTC,
-	}
-
-	// Parse outdoor data (from modules)
+	// Module readings.
 	for _, module := range device.Modules {
-		p.parseModuleToSensorReadings(sensorReadings, sensors, module, dateUTC)
+		if !module.Reachable {
+			continue
+		}
+		if err := p.pullMeasureReadings(ctx, module.Type, device.ID, module.ID, sensors, sensorReadings); err != nil {
+			log.Printf("Failed to pull module %s readings: %v", module.ID, err)
+		}
 	}
 
 	return sensorReadings, stationData, nil
 }
 
-// parseModuleToSensorReadings parses a Netatmo module and adds sensor readings to the map
-func (p *Puller) parseModuleToSensorReadings(sensorReadings map[string]models.SensorReading, sensors map[string]models.Sensor, module StationDataModule, dateUTC time.Time) {
-	var remoteId string
-
-	switch module.Type {
-	case "NAModule1": // Outdoor module
-		remoteId = module.ID + "-" + models.SensorTypeTemperatureOutdoor
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    module.DashboardData.Temperature,
-			DateUTC:  dateUTC,
-		}
-
-		remoteId = module.ID + "-" + models.SensorTypeHumidityOutdoor
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    float64(module.DashboardData.Humidity),
-			DateUTC:  dateUTC,
-		}
-
-	case "NAModule2": // Wind gauge
-		remoteId = module.ID + "-" + models.SensorTypeWindDirection
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    float64(module.DashboardData.WindAngle),
-			DateUTC:  dateUTC,
-		}
-
-		remoteId = module.ID + "-" + models.SensorTypeWindSpeed
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    float64(module.DashboardData.WindStrength),
-			DateUTC:  dateUTC,
-		}
-
-		remoteId = module.ID + "-" + models.SensorTypeWindGust
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    float64(module.DashboardData.GustStrength),
-			DateUTC:  dateUTC,
-		}
-
-	case "NAModule3": // Rain gauge
-		remoteId = module.ID + "-" + models.SensorTypeRainfallRate
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    module.DashboardData.Rain,
-			DateUTC:  dateUTC,
-		}
-
-		remoteId = module.ID + "-" + models.SensorTypeRainfallHourly
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    module.DashboardData.SumRain1,
-			DateUTC:  dateUTC,
-		}
-
-		remoteId = module.ID + "-" + models.SensorTypeRainfallDaily
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    module.DashboardData.SumRain24,
-			DateUTC:  dateUTC,
-		}
-
-	case "NAModule4": // Additional indoor module
-		remoteId = module.ID + "-" + models.SensorTypeTemperature
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    module.DashboardData.Temperature,
-			DateUTC:  dateUTC,
-		}
-
-		remoteId = module.ID + "-" + models.SensorTypeHumidity
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    float64(module.DashboardData.Humidity),
-			DateUTC:  dateUTC,
-		}
-
-		remoteId = module.ID + "-" + models.SensorTypeCO2
-		sensorReadings[remoteId] = models.SensorReading{
-			SensorID: sensors[remoteId].ID,
-			Value:    float64(module.DashboardData.CO2),
-			DateUTC:  dateUTC,
-		}
-
-	default:
-		fmt.Printf("Unknown module type: %s\n", module.Type)
+// pullMeasureReadings fetches the latest values for one device or module via
+// getmeasure and writes them into the readings map. targetID is the device ID
+// for the main device, or the module ID for sub-modules — it is used as the
+// remote-ID prefix when looking up the sensor record.
+func (p *Puller) pullMeasureReadings(
+	ctx context.Context,
+	moduleType, deviceID, moduleID string,
+	sensors map[string]models.Sensor,
+	readings map[string]models.SensorReading,
+) error {
+	mappings := getMeasureMappingsFor(moduleType)
+	if len(mappings) == 0 {
+		log.Printf("⚠️  No getmeasure mappings for module type %s", moduleType)
+		return nil
 	}
+
+	types := make([]string, len(mappings))
+	for i, m := range mappings {
+		types[i] = m.NetatmoType
+	}
+
+	resp, err := p.client.GetMeasure(ctx, deviceID, moduleID, types, "max")
+	if err != nil {
+		return err
+	}
+
+	timestamp, values, ok := resp.LatestValues()
+	if !ok {
+		log.Printf("⚠️  No measurement values returned (device=%s module=%s)", deviceID, moduleID)
+		return nil
+	}
+
+	targetID := moduleID
+	if targetID == "" {
+		targetID = deviceID
+	}
+
+	for i, m := range mappings {
+		if i >= len(values) {
+			break
+		}
+		remoteID := targetID + "-" + m.SensorType
+		sensor, exists := sensors[remoteID]
+		if !exists {
+			continue
+		}
+		readings[remoteID] = models.SensorReading{
+			SensorID: sensor.ID,
+			Value:    values[i],
+			DateUTC:  timestamp,
+		}
+	}
+	return nil
 }
 
 // touchStation saves the station config in the database
@@ -326,9 +253,8 @@ func (p *Puller) getSensorsFromDevice(device StationDataDevice) map[string]model
 
 	// Helper function to safely add sensor
 	addSensor := func(remoteID, sensorKey string, location string, enabled bool) {
-		if sensor, exists := supportedSensors[sensorKey]; exists {
-			// Create a copy and set the RemoteID
-			sensorCopy := sensor
+		if entry, exists := supportedSensors[sensorKey]; exists {
+			sensorCopy := entry.Sensor
 			sensorCopy.RemoteID = remoteID
 			sensorCopy.Location = location
 			sensorCopy.Enabled = enabled
@@ -342,7 +268,6 @@ func (p *Puller) getSensorsFromDevice(device StationDataDevice) map[string]model
 	addSensor(device.ID+"-"+models.SensorTypeTemperature, "NAMain-"+models.SensorTypeTemperature, device.ModuleName, device.Reachable)
 	addSensor(device.ID+"-"+models.SensorTypeHumidity, "NAMain-"+models.SensorTypeHumidity, device.ModuleName, device.Reachable)
 	addSensor(device.ID+"-"+models.SensorTypePressure, "NAMain-"+models.SensorTypePressure, device.ModuleName, device.Reachable)
-	addSensor(device.ID+"-"+models.SensorTypePressureAbsolute, "NAMain-"+models.SensorTypePressureAbsolute, device.ModuleName, device.Reachable)
 	addSensor(device.ID+"-"+models.SensorTypeCO2, "NAMain-"+models.SensorTypeCO2, device.ModuleName, device.Reachable)
 	addSensor(device.ID+"-"+models.SensorTypeNoise, "NAMain-"+models.SensorTypeNoise, device.ModuleName, device.Reachable)
 
@@ -358,12 +283,10 @@ func (p *Puller) getSensorsFromDevice(device StationDataDevice) map[string]model
 			addSensor(module.ID+"-"+models.SensorTypeWindSpeed, "NAModule2-"+models.SensorTypeWindSpeed, "Outdoor", module.Reachable)
 			addSensor(module.ID+"-"+models.SensorTypeWindGust, "NAModule2-"+models.SensorTypeWindGust, "Outdoor", module.Reachable)
 			addSensor(module.ID+"-"+models.SensorTypeWindGustAngle, "NAModule2-"+models.SensorTypeWindGustAngle, "Outdoor", module.Reachable)
-			addSensor(module.ID+"-"+models.SensorTypeWindSpeedMaxDaily, "NAModule2-"+models.SensorTypeWindSpeedMaxDaily, "Outdoor", module.Reachable)
 
 		case "NAModule3": // Rain gauge
 			addSensor(module.ID+"-"+models.SensorTypeRainfallRate, "NAModule3-"+models.SensorTypeRainfallRate, "Outdoor", module.Reachable)
 			addSensor(module.ID+"-"+models.SensorTypeRainfallDaily, "NAModule3-"+models.SensorTypeRainfallDaily, "Outdoor", module.Reachable)
-			addSensor(module.ID+"-"+models.SensorTypeRainfallHourly, "NAModule3-"+models.SensorTypeRainfallHourly, "Outdoor", module.Reachable)
 
 		case "NAModule4": // Additional indoor module
 			addSensor(module.ID+"-"+models.SensorTypeTemperature, "NAModule4-"+models.SensorTypeTemperature, module.ModuleName, module.Reachable)
