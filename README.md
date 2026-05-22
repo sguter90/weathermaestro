@@ -64,6 +64,7 @@ weathermaestro/
 
 - Go 1.25 or higher
 - PostgreSQL database
+- ClickHouse database
 - Docker (optional, for containerized deployment)
 
 ## Installation
