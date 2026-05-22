@@ -6,11 +6,57 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/sguter90/weathermaestro/pkg/models"
 )
+
+// latestReadingsForSensors fetches the most recent reading per sensor from ClickHouse
+// for the given sensor IDs. Sensors with no readings are absent from the result map.
+func (dm *DatabaseManager) latestReadingsForSensors(ctx context.Context, sensorIDs []uuid.UUID) (map[uuid.UUID]*models.SensorReading, error) {
+	result := map[uuid.UUID]*models.SensorReading{}
+	if len(sensorIDs) == 0 {
+		return result, nil
+	}
+
+	const query = `
+		SELECT
+			sensor_id,
+			argMax(id, date_utc)    AS latest_id,
+			argMax(value, date_utc) AS latest_value,
+			max(date_utc)           AS latest_date
+		FROM sensor_readings
+		WHERE sensor_id IN ?
+		GROUP BY sensor_id
+	`
+	rows, err := dm.ch.Conn().Query(ctx, query, sensorIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query latest readings: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			sensorID    uuid.UUID
+			latestID    uuid.UUID
+			latestValue float64
+			latestDate  time.Time
+		)
+		if err := rows.Scan(&sensorID, &latestID, &latestValue, &latestDate); err != nil {
+			log.Printf("Failed to scan latest reading: %v", err)
+			continue
+		}
+		result[sensorID] = &models.SensorReading{
+			ID:       latestID,
+			SensorID: sensorID,
+			Value:    latestValue,
+			DateUTC:  latestDate,
+		}
+	}
+	return result, rows.Err()
+}
 
 // CreateSensor creates a new sensor for a station
 func (dm *DatabaseManager) CreateSensor(sensor *models.Sensor) error {
@@ -40,126 +86,76 @@ func (dm *DatabaseManager) CreateSensor(sensor *models.Sensor) error {
 	return err
 }
 
-// GetSensor retrieves a single sensor by ID
+// GetSensor retrieves a single sensor by ID. When includeLatest is true the most recent
+// reading for the sensor is fetched from ClickHouse and attached.
 func (dm *DatabaseManager) GetSensor(sensorID uuid.UUID, includeLatest bool) (*models.SensorWithLatestReading, error) {
-	var query string
-
-	if includeLatest {
-		query = `
-            SELECT 
-                s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
-                s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
-                sr.id, sr.sensor_id, sr.value, sr.date_utc
-            FROM sensors s
-            LEFT JOIN LATERAL (
-                SELECT id, sensor_id, value, date_utc
-                FROM sensor_readings
-                WHERE sensor_id = s.id
-                ORDER BY date_utc DESC
-                LIMIT 1
-            ) sr ON TRUE
-            WHERE s.id = $1
-        `
-	} else {
-		query = `
-            SELECT 
-                s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
-                s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
-                NULL, NULL, NULL, NULL
-            FROM sensors s
-            WHERE s.id = $1
-        `
-	}
+	const query = `
+		SELECT id, station_id, sensor_type, location, name, model,
+		       battery_level, signal_strength, enabled, created_at, updated_at
+		FROM sensors
+		WHERE id = $1
+	`
 
 	var swr models.SensorWithLatestReading
-	var readingID *uuid.UUID
-	var readingSensorID *uuid.UUID
-	var readingValue *float64
-	var readingDateUTC *time.Time
-
 	err := dm.QueryRowWithHealthCheck(context.Background(), query, sensorID).Scan(
 		&swr.Sensor.ID, &swr.Sensor.StationID, &swr.Sensor.SensorType,
 		&swr.Sensor.Location, &swr.Sensor.Name, &swr.Sensor.Model,
 		&swr.Sensor.BatteryLevel, &swr.Sensor.SignalStrength, &swr.Sensor.Enabled,
 		&swr.Sensor.CreatedAt, &swr.Sensor.UpdatedAt,
-		&readingID, &readingSensorID, &readingValue, &readingDateUTC,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Construct latest reading if it exists
-	if readingID != nil {
-		swr.LatestReading = &models.SensorReading{
-			ID:       *readingID,
-			SensorID: *readingSensorID,
-			Value:    *readingValue,
-			DateUTC:  *readingDateUTC,
+	if includeLatest {
+		latest, err := dm.latestReadingsForSensors(context.Background(), []uuid.UUID{sensorID})
+		if err != nil {
+			return nil, err
+		}
+		if r, ok := latest[sensorID]; ok {
+			swr.LatestReading = r
 		}
 	}
 
 	return &swr, nil
 }
 
-// GetSensors retrieves sensors with flexible filtering
+// GetSensors retrieves sensors with flexible filtering. When IncludeLatest is true
+// the most recent reading per sensor is fetched in a single batch query against ClickHouse.
 func (dm *DatabaseManager) GetSensors(params models.SensorQueryParams) ([]models.SensorWithLatestReading, error) {
-	var query string
+	conditions := []string{}
 	args := []interface{}{}
-	argCount := 1
+	idx := 1
 
-	if params.IncludeLatest {
-		query = `
-            SELECT 
-                s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
-                s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
-                sr.id, sr.sensor_id, sr.value, sr.date_utc
-            FROM sensors s
-            LEFT JOIN LATERAL (
-                SELECT id, sensor_id, value, date_utc
-                FROM sensor_readings
-                WHERE sensor_id = s.id
-                ORDER BY date_utc DESC
-                LIMIT 1
-            ) sr ON TRUE
-            WHERE 1=1
-        `
-	} else {
-		query = `
-            SELECT 
-                s.id, s.station_id, s.sensor_type, s.location, s.name, s.model,
-                s.battery_level, s.signal_strength, s.enabled, s.created_at, s.updated_at,
-                NULL, NULL, NULL, NULL
-            FROM sensors s
-            WHERE 1=1
-        `
-	}
-
-	// Build WHERE clause dynamically
 	if params.StationID != nil {
-		query += " AND s.station_id = $" + string(rune(argCount+'0'))
+		conditions = append(conditions, fmt.Sprintf("station_id = $%d", idx))
 		args = append(args, *params.StationID)
-		argCount++
+		idx++
 	}
-
 	if params.SensorType != "" {
-		query += " AND s.sensor_type = $" + string(rune(argCount+'0'))
+		conditions = append(conditions, fmt.Sprintf("sensor_type = $%d", idx))
 		args = append(args, params.SensorType)
-		argCount++
+		idx++
 	}
-
 	if params.Location != "" {
-		query += " AND s.location = $" + string(rune(argCount+'0'))
+		conditions = append(conditions, fmt.Sprintf("location = $%d", idx))
 		args = append(args, params.Location)
-		argCount++
+		idx++
 	}
-
 	if params.Enabled != nil {
-		query += " AND s.enabled = $" + string(rune(argCount+'0'))
+		conditions = append(conditions, fmt.Sprintf("enabled = $%d", idx))
 		args = append(args, *params.Enabled)
-		argCount++
+		idx++
 	}
 
-	query += " ORDER BY s.location, s.sensor_type, s.created_at"
+	query := `
+		SELECT id, station_id, sensor_type, location, name, model,
+		       battery_level, signal_strength, enabled, created_at, updated_at
+		FROM sensors`
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY location, sensor_type, created_at"
 
 	rows, err := dm.QueryWithHealthCheck(context.Background(), query, args...)
 	if err != nil {
@@ -168,39 +164,39 @@ func (dm *DatabaseManager) GetSensors(params models.SensorQueryParams) ([]models
 	defer rows.Close()
 
 	var sensors []models.SensorWithLatestReading
+	var sensorIDs []uuid.UUID
 	for rows.Next() {
 		var swr models.SensorWithLatestReading
-		var readingID *uuid.UUID
-		var readingSensorID *uuid.UUID
-		var readingValue *float64
-		var readingDateUTC *time.Time
-
 		err := rows.Scan(
 			&swr.Sensor.ID, &swr.Sensor.StationID, &swr.Sensor.SensorType,
 			&swr.Sensor.Location, &swr.Sensor.Name, &swr.Sensor.Model,
 			&swr.Sensor.BatteryLevel, &swr.Sensor.SignalStrength, &swr.Sensor.Enabled,
 			&swr.Sensor.CreatedAt, &swr.Sensor.UpdatedAt,
-			&readingID, &readingSensorID, &readingValue, &readingDateUTC,
 		)
 		if err != nil {
 			log.Printf("Failed to scan sensor: %v", err)
 			continue
 		}
-
-		// Construct latest reading if it exists
-		if readingID != nil {
-			swr.LatestReading = &models.SensorReading{
-				ID:       *readingID,
-				SensorID: *readingSensorID,
-				Value:    *readingValue,
-				DateUTC:  *readingDateUTC,
-			}
-		}
-
 		sensors = append(sensors, swr)
+		sensorIDs = append(sensorIDs, swr.Sensor.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
-	return sensors, rows.Err()
+	if params.IncludeLatest && len(sensorIDs) > 0 {
+		latest, err := dm.latestReadingsForSensors(context.Background(), sensorIDs)
+		if err != nil {
+			return nil, err
+		}
+		for i := range sensors {
+			if r, ok := latest[sensors[i].Sensor.ID]; ok {
+				sensors[i].LatestReading = r
+			}
+		}
+	}
+
+	return sensors, nil
 }
 
 func (dm *DatabaseManager) EnsureSensorsByRemoteId(stationID uuid.UUID, sensors map[string]models.Sensor) (map[string]models.Sensor, error) {

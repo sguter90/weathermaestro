@@ -15,6 +15,7 @@ import (
 type DatabaseManager struct {
 	db            *sql.DB
 	healthChecker *HealthChecker
+	ch            *ClickHouseManager
 }
 
 // NewDatabaseManager creates a new DatabaseManager instance
@@ -23,9 +24,17 @@ func NewDatabaseManager() (*DatabaseManager, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	ch, err := NewClickHouseManager()
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to initialize clickhouse: %w", err)
+	}
+
 	dm := &DatabaseManager{
 		db:            db,
 		healthChecker: NewHealthChecker(db, 30*time.Second),
+		ch:            ch,
 	}
 
 	// Start health checking
@@ -43,6 +52,11 @@ func (dm *DatabaseManager) GetDB() *sql.DB {
 func (dm *DatabaseManager) Close() error {
 	if dm.healthChecker != nil {
 		dm.healthChecker.Stop()
+	}
+	if dm.ch != nil {
+		if err := dm.ch.Close(); err != nil {
+			log.Printf("Failed to close ClickHouse connection: %v", err)
+		}
 	}
 	if dm.db != nil {
 		return dm.db.Close()

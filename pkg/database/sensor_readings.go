@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,28 +12,26 @@ import (
 	"github.com/sguter90/weathermaestro/pkg/models"
 )
 
-// StoreSensorReading stores a single sensor reading
+// StoreSensorReading stores a single sensor reading in ClickHouse.
+// async_insert is enabled on the connection, so the server buffers and
+// flushes small inserts as larger MergeTree parts.
 func (dm *DatabaseManager) StoreSensorReading(sensorID uuid.UUID, value float64, dateUTC time.Time) error {
-	query := `
-        INSERT INTO sensor_readings (sensor_id, value, date_utc)
-        VALUES ($1, $2, $3)
-    `
-
-	_, err := dm.ExecWithHealthCheck(context.Background(), query, sensorID, value, dateUTC.Format(time.RFC3339Nano))
-	return err
+	const query = `INSERT INTO sensor_readings (sensor_id, value, date_utc) VALUES (?, ?, ?)`
+	return dm.ch.Conn().AsyncInsert(context.Background(), query, false, sensorID, value, dateUTC.UTC())
 }
 
-// GetSensorReadings retrieves readings for a sensor within a time range
+// GetSensorReadings retrieves readings for a sensor within a time range.
 func (dm *DatabaseManager) GetSensorReadings(sensorID uuid.UUID, startTime, endTime time.Time, limit int) ([]models.SensorReading, error) {
-	query := `
-        SELECT id, sensor_id, value, date_utc
-        FROM sensor_readings
-        WHERE sensor_id = $1 AND date_utc >= $2 AND date_utc <= $3
-        ORDER BY date_utc DESC
-        LIMIT $4
-    `
+	const query = `
+		SELECT id, sensor_id, value, date_utc
+		FROM sensor_readings
+		WHERE sensor_id = ? AND date_utc >= ? AND date_utc <= ?
+		ORDER BY date_utc DESC
+		LIMIT ?
+	`
 
-	rows, err := dm.QueryWithHealthCheck(context.Background(), query, sensorID, startTime, endTime, limit)
+	ctx := context.Background()
+	rows, err := dm.ch.Conn().Query(ctx, query, sensorID, startTime.UTC(), endTime.UTC(), uint64(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -40,107 +39,134 @@ func (dm *DatabaseManager) GetSensorReadings(sensorID uuid.UUID, startTime, endT
 
 	var readings []models.SensorReading
 	for rows.Next() {
-		var reading models.SensorReading
-		err := rows.Scan(&reading.ID, &reading.SensorID, &reading.Value, &reading.DateUTC)
-		if err != nil {
+		var r models.SensorReading
+		if err := rows.Scan(&r.ID, &r.SensorID, &r.Value, &r.DateUTC); err != nil {
 			log.Printf("Failed to scan reading: %v", err)
 			continue
 		}
-		readings = append(readings, reading)
+		readings = append(readings, r)
 	}
-
 	return readings, rows.Err()
 }
 
-// GetReadings retrieves readings with flexible filtering
-func (dm *DatabaseManager) GetReadings(params models.ReadingQueryParams) (*models.ReadingsResponse, error) {
-	// Build WHERE clause that will be reused for both queries
-	whereClause := ""
-	args := []interface{}{}
-	argCount := 1
+// sensorMetadata is the per-sensor info from Postgres needed to resolve
+// readings-side filters (StationID/SensorType/Location) and to re-group
+// aggregated results by sensor_type or location.
+type sensorMetadata struct {
+	SensorID   uuid.UUID
+	SensorType string
+	Location   string
+	StationID  uuid.UUID
+}
+
+// resolveSensors returns the set of sensors that match the metadata filters
+// in params (StationID, SensorType, Location, SensorIDs). The returned slice
+// is empty when no sensors match — callers should treat that as a zero result.
+func (dm *DatabaseManager) resolveSensors(params models.ReadingQueryParams) ([]sensorMetadata, error) {
+	var conditions []string
+	var args []interface{}
+	idx := 1
 
 	if params.StationID != nil {
-		whereClause += fmt.Sprintf(" AND s.station_id = $%d", argCount)
+		conditions = append(conditions, fmt.Sprintf("station_id = $%d", idx))
 		args = append(args, *params.StationID)
-		argCount++
+		idx++
 	}
-
-	if len(params.SensorIDs) > 0 {
-		placeholders := []string{}
-		for _, sensorID := range params.SensorIDs {
-			placeholders = append(placeholders, fmt.Sprintf("$%d", argCount))
-			args = append(args, sensorID)
-			argCount++
-		}
-		whereClause += fmt.Sprintf(" AND sr.sensor_id IN (%s)", strings.Join(placeholders, ","))
-	}
-
 	if params.SensorType != "" {
-		whereClause += fmt.Sprintf(" AND s.sensor_type = $%d", argCount)
+		conditions = append(conditions, fmt.Sprintf("sensor_type = $%d", idx))
 		args = append(args, params.SensorType)
-		argCount++
+		idx++
 	}
-
 	if params.Location != "" {
-		whereClause += fmt.Sprintf(" AND s.location = $%d", argCount)
+		conditions = append(conditions, fmt.Sprintf("location = $%d", idx))
 		args = append(args, params.Location)
-		argCount++
+		idx++
+	}
+	if len(params.SensorIDs) > 0 {
+		placeholders := make([]string, 0, len(params.SensorIDs))
+		for _, id := range params.SensorIDs {
+			placeholders = append(placeholders, fmt.Sprintf("$%d", idx))
+			args = append(args, id)
+			idx++
+		}
+		conditions = append(conditions, fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ",")))
 	}
 
-	if params.StartTime != "" {
-		whereClause += fmt.Sprintf(" AND sr.date_utc >= $%d", argCount)
-		args = append(args, params.StartTime)
-		argCount++
+	query := "SELECT id, sensor_type, location, station_id FROM sensors"
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	if params.EndTime != "" {
-		whereClause += fmt.Sprintf(" AND sr.date_utc <= $%d", argCount)
-		args = append(args, params.EndTime)
-		argCount++
-	}
-
-	// Get total count first (before adding LIMIT/OFFSET)
-	countQuery := `
-        SELECT COUNT(*)
-        FROM sensor_readings sr
-        JOIN sensors s ON sr.sensor_id = s.id
-        WHERE 1=1
-    ` + whereClause
-
-	var totalCount int
-	err := dm.QueryRowWithHealthCheck(context.Background(), countQuery, args...).Scan(&totalCount)
+	rows, err := dm.QueryWithHealthCheck(context.Background(), query, args...)
 	if err != nil {
-		log.Printf("Failed to get total count: %v", err)
-		return nil, fmt.Errorf("failed to get total count: %w", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []sensorMetadata
+	for rows.Next() {
+		var m sensorMetadata
+		if err := rows.Scan(&m.SensorID, &m.SensorType, &m.Location, &m.StationID); err != nil {
+			return nil, err
+		}
+		result = append(result, m)
+	}
+	return result, rows.Err()
+}
+
+// GetReadings retrieves raw readings with flexible filtering.
+func (dm *DatabaseManager) GetReadings(params models.ReadingQueryParams) (*models.ReadingsResponse, error) {
+	sensors, err := dm.resolveSensors(params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve sensors: %w", err)
 	}
 
-	// Now build the main query with the same WHERE clause
-	query := `
-        SELECT 
-            sr.id,
-            sr.sensor_id,
-            sr.value,
-            sr.date_utc,
-            s.sensor_type,
-            s.location,
-            s.name,
-            s.station_id
-        FROM sensor_readings sr
-        JOIN sensors s ON sr.sensor_id = s.id
-        WHERE 1=1
-    ` + whereClause
+	response := &models.ReadingsResponse{
+		Data:         []models.SensorReading{},
+		Total:        0,
+		Page:         params.Page,
+		Limit:        params.Limit,
+		TotalPages:   1,
+		HasMore:      false,
+		IsAggregated: false,
+	}
 
-	// Add ORDER BY
-	query += fmt.Sprintf(" ORDER BY sr.date_utc %s", strings.ToUpper(params.Order))
+	if len(sensors) == 0 {
+		return response, nil
+	}
 
-	// Calculate offset from page
-	offset := (params.Page - 1) * params.Limit
+	sensorIDs := make([]uuid.UUID, 0, len(sensors))
+	for _, s := range sensors {
+		sensorIDs = append(sensorIDs, s.SensorID)
+	}
 
-	// Add LIMIT and OFFSET
-	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount, argCount+1)
-	queryArgs := append(args, params.Limit, offset)
+	whereClause, args, err := buildReadingsWhere(sensorIDs, params.StartTime, params.EndTime)
+	if err != nil {
+		return nil, err
+	}
 
-	rows, err := dm.QueryWithHealthCheck(context.Background(), query, queryArgs...)
+	ctx := context.Background()
+
+	countQuery := "SELECT count() FROM sensor_readings " + whereClause
+	var totalCount uint64
+	if err := dm.ch.Conn().QueryRow(ctx, countQuery, args...).Scan(&totalCount); err != nil {
+		return nil, fmt.Errorf("failed to count readings: %w", err)
+	}
+
+	order := strings.ToUpper(params.Order)
+	if order != "ASC" && order != "DESC" {
+		order = "DESC"
+	}
+
+	offset := uint64((params.Page - 1) * params.Limit)
+	limit := uint64(params.Limit)
+
+	dataQuery := fmt.Sprintf(
+		`SELECT id, sensor_id, value, date_utc FROM sensor_readings %s ORDER BY date_utc %s LIMIT %d OFFSET %d`,
+		whereClause, order, limit, offset,
+	)
+
+	rows, err := dm.ch.Conn().Query(ctx, dataQuery, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -148,295 +174,330 @@ func (dm *DatabaseManager) GetReadings(params models.ReadingQueryParams) (*model
 
 	readings := []models.SensorReading{}
 	for rows.Next() {
-		var reading models.SensorReading
-		var sensorType, location, name string
-		var stationID uuid.UUID
-
-		err := rows.Scan(
-			&reading.ID,
-			&reading.SensorID,
-			&reading.Value,
-			&reading.DateUTC,
-			&sensorType,
-			&location,
-			&name,
-			&stationID,
-		)
-		if err != nil {
+		var r models.SensorReading
+		if err := rows.Scan(&r.ID, &r.SensorID, &r.Value, &r.DateUTC); err != nil {
 			log.Printf("Failed to scan reading: %v", err)
 			continue
 		}
-
-		readings = append(readings, reading)
+		readings = append(readings, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
-	// Calculate total pages
-	totalPages := (totalCount + params.Limit - 1) / params.Limit
+	totalPages := int((totalCount + uint64(params.Limit) - 1) / uint64(params.Limit))
 	if totalPages == 0 {
 		totalPages = 1
 	}
 
-	return &models.ReadingsResponse{
-		Data:         readings,
-		Total:        totalCount,
-		Page:         params.Page,
-		Limit:        params.Limit,
-		TotalPages:   totalPages,
-		HasMore:      params.Page < totalPages,
-		IsAggregated: false,
-	}, rows.Err()
+	response.Data = readings
+	response.Total = int(totalCount)
+	response.TotalPages = totalPages
+	response.HasMore = params.Page < totalPages
+	return response, nil
 }
 
-// GetAggregatedReadings retrieves aggregated readings based on time intervals
+// buildReadingsWhere builds the WHERE clause for readings queries against ClickHouse.
+// Time range filters are optional. The sensor list is required (callers guard the empty case).
+func buildReadingsWhere(sensorIDs []uuid.UUID, startTime, endTime string) (string, []interface{}, error) {
+	args := []interface{}{sensorIDs}
+	parts := []string{"sensor_id IN ?"}
+
+	if startTime != "" {
+		t, err := time.Parse(time.RFC3339, startTime)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid start_time: %w", err)
+		}
+		parts = append(parts, "date_utc >= ?")
+		args = append(args, t.UTC())
+	}
+	if endTime != "" {
+		t, err := time.Parse(time.RFC3339, endTime)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid end_time: %w", err)
+		}
+		parts = append(parts, "date_utc <= ?")
+		args = append(args, t.UTC())
+	}
+
+	return "WHERE " + strings.Join(parts, " AND "), args, nil
+}
+
+// bucketRow holds the composable per-(sensor, time_bucket) aggregates fetched
+// from ClickHouse. Go-side post-aggregation folds these by group key
+// (sensor / sensor_type / location) and applies the requested aggregate function.
+type bucketRow struct {
+	TimeBucket time.Time
+	SensorID   uuid.UUID
+	Sum        float64
+	Count      uint64
+	Min        float64
+	Max        float64
+	FirstValue float64
+	FirstDate  time.Time
+	LastValue  float64
+	LastDate   time.Time
+}
+
+// GetAggregatedReadings retrieves aggregated readings grouped by a time bucket
+// and (sensor | sensor_type | location).
 func (dm *DatabaseManager) GetAggregatedReadings(params models.ReadingQueryParams) (*models.ReadingsResponse, error) {
-	// Build time bucket expression
-	timeBucketExpr := convertAggregateInterval(params.Aggregate)
-	if timeBucketExpr == "" {
+	bucketExpr, ok := clickhouseBucketExpr(params.Aggregate)
+	if !ok {
 		return nil, fmt.Errorf("invalid aggregate interval: %s", params.Aggregate)
 	}
 
-	// Build aggregation function
-	aggFunc := buildAggregateFunction(params.AggregateFunc)
-
-	// Build WHERE clause that will be reused for both count and main query
-	whereClause := ""
-	var args []interface{}
-	argCount := 1
-
-	if params.StationID != nil {
-		whereClause += fmt.Sprintf(" AND s.station_id = $%d", argCount)
-		args = append(args, *params.StationID)
-		argCount++
-	}
-
-	if len(params.SensorIDs) > 0 {
-		placeholders := []string{}
-		for _, sensorID := range params.SensorIDs {
-			placeholders = append(placeholders, fmt.Sprintf("$%d", argCount))
-			args = append(args, sensorID)
-			argCount++
-		}
-		whereClause += fmt.Sprintf(" AND sr.sensor_id IN (%s)", strings.Join(placeholders, ","))
-	}
-
-	if params.SensorType != "" {
-		whereClause += fmt.Sprintf(" AND s.sensor_type = $%d", argCount)
-		args = append(args, params.SensorType)
-		argCount++
-	}
-
-	if params.Location != "" {
-		whereClause += fmt.Sprintf(" AND s.location = $%d", argCount)
-		args = append(args, params.Location)
-		argCount++
-	}
-
-	if params.StartTime != "" {
-		whereClause += fmt.Sprintf(" AND sr.date_utc >= $%d", argCount)
-		args = append(args, params.StartTime)
-		argCount++
-	}
-
-	if params.EndTime != "" {
-		whereClause += fmt.Sprintf(" AND sr.date_utc <= $%d", argCount)
-		args = append(args, params.EndTime)
-		argCount++
-	}
-
-	// Determine GROUP BY clause and SELECT columns based on grouping
-	var groupByClause string
-	var selectGroupColumn string
-	var groupColumnName string
-
-	switch params.GroupBy {
-	case "sensor":
-		groupByClause = "sr.sensor_id"
-		selectGroupColumn = "sr.sensor_id"
-		groupColumnName = "sensor_id"
-	case "sensor_type":
-		groupByClause = "s.sensor_type"
-		selectGroupColumn = "s.sensor_type"
-		groupColumnName = "sensor_type"
-	case "location":
-		groupByClause = "s.location"
-		selectGroupColumn = "s.location"
-		groupColumnName = "location"
-	default:
-		groupByClause = "sr.sensor_id"
-		selectGroupColumn = "sr.sensor_id"
-		groupColumnName = "sensor_id"
-	}
-
-	// Get total count of aggregated buckets (before LIMIT/OFFSET)
-	countQuery := fmt.Sprintf(`
-        SELECT COUNT(*) FROM (
-            SELECT 
-                %s as time_bucket,
-                %s as %s
-            FROM sensor_readings sr
-            JOIN sensors s ON sr.sensor_id = s.id
-            WHERE 1=1
-            %s
-            GROUP BY time_bucket, %s
-        ) as subquery
-    `, timeBucketExpr, selectGroupColumn, groupColumnName, whereClause, groupByClause)
-
-	var totalCount int
-	err := dm.QueryRowWithHealthCheck(context.Background(), countQuery, args...).Scan(&totalCount)
+	sensors, err := dm.resolveSensors(params)
 	if err != nil {
-		log.Printf("Failed to get total count for aggregated readings: %v", err)
-		return nil, fmt.Errorf("failed to get total count: %w", err)
+		return nil, fmt.Errorf("failed to resolve sensors: %w", err)
 	}
 
-	// Build main aggregation query with appropriate SELECT columns
-	query := fmt.Sprintf(`
-        SELECT 
-            %s as time_bucket,
-            %s as group_column,
-            %s as value,
-            COUNT(*) as count,
-            MIN(sr.value) as min_value,
-            MAX(sr.value) as max_value
-        FROM sensor_readings sr
-        JOIN sensors s ON sr.sensor_id = s.id
-        WHERE 1=1
-    `, timeBucketExpr, selectGroupColumn, aggFunc)
+	response := &models.ReadingsResponse{
+		Data:         []models.AggregatedReading{},
+		Total:        0,
+		Page:         params.Page,
+		Limit:        params.Limit,
+		TotalPages:   1,
+		HasMore:      false,
+		IsAggregated: true,
+	}
 
-	query += whereClause
+	if len(sensors) == 0 {
+		return response, nil
+	}
 
-	// Group by time bucket and the grouping column
-	query += fmt.Sprintf(" GROUP BY time_bucket, %s", groupByClause)
+	sensorIDs := make([]uuid.UUID, 0, len(sensors))
+	metaBySensor := make(map[uuid.UUID]sensorMetadata, len(sensors))
+	for _, s := range sensors {
+		sensorIDs = append(sensorIDs, s.SensorID)
+		metaBySensor[s.SensorID] = s
+	}
 
-	// Order by time bucket
-	query += fmt.Sprintf(" ORDER BY time_bucket %s", strings.ToUpper(params.Order))
+	whereClause, args, err := buildReadingsWhere(sensorIDs, params.StartTime, params.EndTime)
+	if err != nil {
+		return nil, err
+	}
 
-	// Calculate offset from page
-	offset := (params.Page - 1) * params.Limit
+	dataQuery := fmt.Sprintf(`
+		SELECT
+			%s AS time_bucket,
+			sensor_id,
+			sum(value)               AS sum_value,
+			count()                  AS count_value,
+			min(value)               AS min_value,
+			max(value)               AS max_value,
+			argMin(value, date_utc)  AS first_value,
+			min(date_utc)            AS first_date,
+			argMax(value, date_utc)  AS last_value,
+			max(date_utc)            AS last_date
+		FROM sensor_readings
+		%s
+		GROUP BY time_bucket, sensor_id
+	`, bucketExpr, whereClause)
 
-	// Add LIMIT and OFFSET
-	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount, argCount+1)
-	queryArgs := append(args, params.Limit, offset)
-
-	rows, err := dm.QueryWithHealthCheck(context.Background(), query, queryArgs...)
+	rows, err := dm.ch.Conn().Query(context.Background(), dataQuery, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var readings []models.AggregatedReading
+	var buckets []bucketRow
 	for rows.Next() {
-		var reading models.AggregatedReading
-
-		// Scan based on group type
-		switch groupColumnName {
-		case "sensor_type":
-			var sensorType string
-			err := rows.Scan(
-				&reading.DateUTC,
-				&sensorType,
-				&reading.Value,
-				&reading.Count,
-				&reading.MinValue,
-				&reading.MaxValue,
-			)
-			if err != nil {
-				log.Printf("Failed to scan aggregated reading: %v", err)
-				continue
-			}
-			reading.SensorType = sensorType
-
-		case "location":
-			var location string
-			err := rows.Scan(
-				&reading.DateUTC,
-				&location,
-				&reading.Value,
-				&reading.Count,
-				&reading.MinValue,
-				&reading.MaxValue,
-			)
-			if err != nil {
-				log.Printf("Failed to scan aggregated reading: %v", err)
-				continue
-			}
-			reading.Location = location
-
-		default:
-			var sensorID uuid.UUID
-			err := rows.Scan(
-				&reading.DateUTC,
-				&sensorID,
-				&reading.Value,
-				&reading.Count,
-				&reading.MinValue,
-				&reading.MaxValue,
-			)
-			if err != nil {
-				log.Printf("Failed to scan aggregated reading: %v", err)
-				continue
-			}
-			reading.SensorID = sensorID
+		var b bucketRow
+		if err := rows.Scan(
+			&b.TimeBucket, &b.SensorID,
+			&b.Sum, &b.Count, &b.Min, &b.Max,
+			&b.FirstValue, &b.FirstDate,
+			&b.LastValue, &b.LastDate,
+		); err != nil {
+			log.Printf("Failed to scan bucket row: %v", err)
+			continue
 		}
-
-		readings = append(readings, reading)
+		buckets = append(buckets, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
-	// Calculate total pages
-	totalPages := (totalCount + params.Limit - 1) / params.Limit
+	aggFunc := params.AggregateFunc
+	if aggFunc == "" {
+		aggFunc = "avg"
+	}
+
+	aggregated := foldBuckets(buckets, metaBySensor, params.GroupBy, aggFunc)
+
+	order := strings.ToUpper(params.Order)
+	if order != "ASC" && order != "DESC" {
+		order = "DESC"
+	}
+	sort.SliceStable(aggregated, func(i, j int) bool {
+		if order == "ASC" {
+			return aggregated[i].DateUTC.Before(aggregated[j].DateUTC)
+		}
+		return aggregated[i].DateUTC.After(aggregated[j].DateUTC)
+	})
+
+	total := len(aggregated)
+	totalPages := (total + params.Limit - 1) / params.Limit
 	if totalPages == 0 {
 		totalPages = 1
 	}
 
-	return &models.ReadingsResponse{
-		Data:         readings,
-		Total:        totalCount,
-		Page:         params.Page,
-		Limit:        params.Limit,
-		TotalPages:   totalPages,
-		HasMore:      params.Page < totalPages,
-		IsAggregated: true,
-	}, rows.Err()
+	start := (params.Page - 1) * params.Limit
+	if start > total {
+		start = total
+	}
+	end := start + params.Limit
+	if end > total {
+		end = total
+	}
+
+	response.Data = aggregated[start:end]
+	response.Total = total
+	response.TotalPages = totalPages
+	response.HasMore = params.Page < totalPages
+	return response, nil
 }
 
-// convertAggregateInterval converts user-friendly interval to PostgreSQL time bucket expression
-func convertAggregateInterval(interval string) string {
-	intervals := map[string]string{
-		"1m":  "date_trunc('minute', sr.date_utc)",
-		"5m":  "to_timestamp(floor((extract('epoch' from sr.date_utc) / 300 )) * 300)",
-		"15m": "to_timestamp(floor((extract('epoch' from sr.date_utc) / 900 )) * 900)",
-		"30m": "to_timestamp(floor((extract('epoch' from sr.date_utc) / 1800 )) * 1800)",
-		"1h":  "date_trunc('hour', sr.date_utc)",
-		"6h":  "to_timestamp(floor((extract('epoch' from sr.date_utc) / 21600 )) * 21600)",
-		"12h": "to_timestamp(floor((extract('epoch' from sr.date_utc) / 43200 )) * 43200)",
-		"1d":  "date_trunc('day', sr.date_utc)",
-		"1w":  "date_trunc('week', sr.date_utc)",
-		"1M":  "date_trunc('month', sr.date_utc)",
+// foldBuckets re-aggregates per-sensor-per-bucket rows by the requested group key
+// and applies the requested aggregate function.
+func foldBuckets(buckets []bucketRow, meta map[uuid.UUID]sensorMetadata, groupBy, aggFunc string) []models.AggregatedReading {
+	type folded struct {
+		dateUTC    time.Time
+		sensorID   uuid.UUID
+		sensorType string
+		location   string
+		sum        float64
+		count      uint64
+		min        float64
+		max        float64
+		firstVal   float64
+		firstDate  time.Time
+		lastVal    float64
+		lastDate   time.Time
+		seen       bool
 	}
 
-	if expr, ok := intervals[interval]; ok {
-		return expr
+	type key struct {
+		bucket   time.Time
+		groupVal string
 	}
-	return ""
+
+	groups := make(map[key]*folded)
+
+	for _, b := range buckets {
+		m := meta[b.SensorID]
+		var groupVal string
+		switch groupBy {
+		case "sensor_type":
+			groupVal = m.SensorType
+		case "location":
+			groupVal = m.Location
+		default:
+			groupVal = b.SensorID.String()
+		}
+
+		k := key{bucket: b.TimeBucket, groupVal: groupVal}
+		f, ok := groups[k]
+		if !ok {
+			f = &folded{
+				dateUTC:    b.TimeBucket,
+				sensorID:   b.SensorID,
+				sensorType: m.SensorType,
+				location:   m.Location,
+				min:        b.Min,
+				max:        b.Max,
+				firstVal:   b.FirstValue,
+				firstDate:  b.FirstDate,
+				lastVal:    b.LastValue,
+				lastDate:   b.LastDate,
+				seen:       true,
+			}
+			groups[k] = f
+		}
+		f.sum += b.Sum
+		f.count += b.Count
+		if b.Min < f.min {
+			f.min = b.Min
+		}
+		if b.Max > f.max {
+			f.max = b.Max
+		}
+		if b.FirstDate.Before(f.firstDate) {
+			f.firstDate = b.FirstDate
+			f.firstVal = b.FirstValue
+		}
+		if b.LastDate.After(f.lastDate) {
+			f.lastDate = b.LastDate
+			f.lastVal = b.LastValue
+		}
+	}
+
+	out := make([]models.AggregatedReading, 0, len(groups))
+	for _, f := range groups {
+		r := models.AggregatedReading{
+			DateUTC:  f.dateUTC,
+			Count:    int(f.count),
+			MinValue: f.min,
+			MaxValue: f.max,
+		}
+		switch groupBy {
+		case "sensor_type":
+			r.SensorType = f.sensorType
+		case "location":
+			r.Location = f.location
+		default:
+			r.SensorID = f.sensorID
+		}
+		switch aggFunc {
+		case "min":
+			r.Value = f.min
+		case "max":
+			r.Value = f.max
+		case "sum":
+			r.Value = f.sum
+		case "count":
+			r.Value = float64(f.count)
+		case "first":
+			r.Value = f.firstVal
+		case "last":
+			r.Value = f.lastVal
+		case "avg":
+			fallthrough
+		default:
+			if f.count > 0 {
+				r.Value = f.sum / float64(f.count)
+			}
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
-// buildAggregateFunction builds the SQL aggregate function based on user input
-func buildAggregateFunction(funcName string) string {
-	switch funcName {
-	case "avg":
-		return "AVG(sr.value)"
-	case "min":
-		return "MIN(sr.value)"
-	case "max":
-		return "MAX(sr.value)"
-	case "sum":
-		return "SUM(sr.value)"
-	case "count":
-		return "COUNT(sr.value)"
-	case "first":
-		return "FIRST_VALUE(sr.value) OVER (PARTITION BY date_trunc ORDER BY sr.date_utc ASC)"
-	case "last":
-		return "LAST_VALUE(sr.value) OVER (PARTITION BY date_trunc ORDER BY sr.date_utc DESC)"
-	default:
-		return "AVG(sr.value)" // default to average
+// clickhouseBucketExpr returns the ClickHouse expression that buckets date_utc
+// at the requested resolution. The second return value is false for unknown intervals.
+func clickhouseBucketExpr(interval string) (string, bool) {
+	switch interval {
+	case "1m":
+		return "toStartOfInterval(date_utc, INTERVAL 1 MINUTE)", true
+	case "5m":
+		return "toStartOfInterval(date_utc, INTERVAL 5 MINUTE)", true
+	case "15m":
+		return "toStartOfInterval(date_utc, INTERVAL 15 MINUTE)", true
+	case "30m":
+		return "toStartOfInterval(date_utc, INTERVAL 30 MINUTE)", true
+	case "1h":
+		return "toStartOfInterval(date_utc, INTERVAL 1 HOUR)", true
+	case "6h":
+		return "toStartOfInterval(date_utc, INTERVAL 6 HOUR)", true
+	case "12h":
+		return "toStartOfInterval(date_utc, INTERVAL 12 HOUR)", true
+	case "1d":
+		return "toStartOfInterval(date_utc, INTERVAL 1 DAY)", true
+	case "1w":
+		return "toStartOfInterval(date_utc, INTERVAL 1 WEEK)", true
+	case "1M":
+		return "toStartOfInterval(date_utc, INTERVAL 1 MONTH)", true
 	}
+	return "", false
 }

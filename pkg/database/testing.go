@@ -8,11 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	_ "github.com/lib/pq"
 )
 
 // FOR TESTING:
 //   export TEST_DATABASE_URL="postgres://user:password@localhost:5432/weathermaestro_test?sslmode=disable"
+//   export TEST_CLICKHOUSE_DSN="clickhouse://weather:weather@localhost:9000/weather_test"
 //   go test ./pkg/database/...
 
 // setupTestDatabaseManager creates a test database manager for integration tests
@@ -45,12 +48,78 @@ func setupTestDatabaseManager(t *testing.T) *DatabaseManager {
 	dm := &DatabaseManager{
 		db:            db,
 		healthChecker: NewHealthChecker(db, 30*time.Second),
+		ch:            setupTestClickHouse(t),
 	}
 
 	// Start health checking
 	dm.healthChecker.Start()
 
 	return dm
+}
+
+// setupTestClickHouse opens a test ClickHouse connection and prepares a clean schema.
+// Returns nil if TEST_CLICKHOUSE_DSN is not set, so tests that don't touch CH still run.
+func setupTestClickHouse(t *testing.T) *ClickHouseManager {
+	dsn := os.Getenv("TEST_CLICKHOUSE_DSN")
+	if dsn == "" {
+		return nil
+	}
+
+	opts, err := clickhouse.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("Failed to parse TEST_CLICKHOUSE_DSN: %v", err)
+	}
+	if opts.Settings == nil {
+		opts.Settings = clickhouse.Settings{}
+	}
+	opts.Settings["async_insert"] = 0 // synchronous in tests for deterministic reads
+
+	conn, err := clickhouse.Open(opts)
+	if err != nil {
+		t.Fatalf("Failed to connect to test ClickHouse: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := conn.Ping(ctx); err != nil {
+		t.Fatalf("Failed to ping test ClickHouse: %v", err)
+	}
+
+	if err := dropClickHouseTables(ctx, conn); err != nil {
+		t.Fatalf("Failed to drop ClickHouse tables: %v", err)
+	}
+
+	cm := &ClickHouseManager{conn: conn}
+	if err := cm.ensureSchema(ctx); err != nil {
+		t.Fatalf("Failed to ensure ClickHouse schema: %v", err)
+	}
+
+	return cm
+}
+
+// dropClickHouseTables drops all tables in the configured ClickHouse database.
+func dropClickHouseTables(ctx context.Context, conn driver.Conn) error {
+	rows, err := conn.Query(ctx, "SELECT name FROM system.tables WHERE database = currentDatabase()")
+	if err != nil {
+		return fmt.Errorf("failed to list tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return fmt.Errorf("failed to scan table name: %w", err)
+		}
+		tables = append(tables, name)
+	}
+
+	for _, table := range tables {
+		if err := conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
+			return fmt.Errorf("failed to drop table %s: %w", table, err)
+		}
+	}
+	return nil
 }
 
 // dropAllTables drops all tables in the database

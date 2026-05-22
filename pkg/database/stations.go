@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sguter90/weathermaestro/pkg/models"
@@ -136,102 +137,186 @@ func (dm *DatabaseManager) EnsureStation(data *models.StationData) (uuid.UUID, e
 	return stationID, err
 }
 
-// GetStationList retrieves a list of all stations
+// GetStationList retrieves a list of all stations with reading statistics
+// (total/first/last) computed from ClickHouse.
 func (dm *DatabaseManager) GetStationList() ([]models.StationDetail, error) {
-	query := `
-            SELECT DISTINCT 
-                s.id, 
-                s.pass_key, 
-                s.station_type, 
-                s.model,
-                COUNT(sr.id) as total_readings,
-                MIN(sr.date_utc) as first_reading,
-                MAX(sr.date_utc) as last_reading
-            FROM stations s
-            LEFT JOIN sensors sens ON s.id = sens.station_id
-            LEFT JOIN sensor_readings sr ON sens.id = sr.sensor_id
-            GROUP BY s.id
-        `
-
-	var stations []models.StationDetail
+	const query = `
+		SELECT s.id, s.pass_key, s.station_type, s.model, sens.id
+		FROM stations s
+		LEFT JOIN sensors sens ON s.id = sens.station_id
+	`
 
 	rows, err := dm.QueryWithHealthCheck(context.Background(), query)
 	if err != nil {
-		return stations, err
+		return nil, err
+	}
+	defer rows.Close()
+
+	type stationAccum struct {
+		station   models.StationDetail
+		sensorIDs []uuid.UUID
+	}
+	order := []uuid.UUID{}
+	accum := map[uuid.UUID]*stationAccum{}
+
+	for rows.Next() {
+		var (
+			stationID                       uuid.UUID
+			passKey, stationType, modelName string
+			sensorID                        sql.NullString
+		)
+		if err := rows.Scan(&stationID, &passKey, &stationType, &modelName, &sensorID); err != nil {
+			log.Printf("Failed to scan station row: %v", err)
+			continue
+		}
+		entry, ok := accum[stationID]
+		if !ok {
+			entry = &stationAccum{
+				station: models.StationDetail{
+					ID:          stationID,
+					PassKey:     passKey,
+					StationType: stationType,
+					Model:       modelName,
+				},
+			}
+			accum[stationID] = entry
+			order = append(order, stationID)
+		}
+		if sensorID.Valid {
+			if parsed, err := uuid.Parse(sensorID.String); err == nil {
+				entry.sensorIDs = append(entry.sensorIDs, parsed)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	allSensorIDs := []uuid.UUID{}
+	for _, id := range order {
+		allSensorIDs = append(allSensorIDs, accum[id].sensorIDs...)
+	}
+
+	statsBySensor, err := dm.readingStatsBySensor(context.Background(), allSensorIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	stations := make([]models.StationDetail, 0, len(order))
+	for _, id := range order {
+		entry := accum[id]
+		applyStationStats(&entry.station, entry.sensorIDs, statsBySensor)
+		stations = append(stations, entry.station)
+	}
+	return stations, nil
+}
+
+// GetStation retrieves detailed information about a specific station, including
+// reading statistics aggregated from ClickHouse.
+func (dm *DatabaseManager) GetStation(stationID uuid.UUID) (models.StationDetail, error) {
+	const stationQuery = `
+		SELECT id, pass_key, station_type, model
+		FROM stations
+		WHERE id = $1
+	`
+	var station models.StationDetail
+	err := dm.QueryRowWithHealthCheck(context.Background(), stationQuery, stationID).Scan(
+		&station.ID, &station.PassKey, &station.StationType, &station.Model,
+	)
+	if err != nil {
+		return station, err
+	}
+
+	const sensorsQuery = `SELECT id FROM sensors WHERE station_id = $1`
+	rows, err := dm.QueryWithHealthCheck(context.Background(), sensorsQuery, stationID)
+	if err != nil {
+		return station, err
+	}
+	defer rows.Close()
+
+	var sensorIDs []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			log.Printf("Failed to scan sensor id: %v", err)
+			continue
+		}
+		sensorIDs = append(sensorIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return station, err
+	}
+
+	statsBySensor, err := dm.readingStatsBySensor(context.Background(), sensorIDs)
+	if err != nil {
+		return station, err
+	}
+	applyStationStats(&station, sensorIDs, statsBySensor)
+	return station, nil
+}
+
+// readingStats holds the count and time bounds of readings for a single sensor.
+type readingStats struct {
+	Total int
+	First time.Time
+	Last  time.Time
+}
+
+// readingStatsBySensor returns count/min/max(date_utc) per sensor from ClickHouse.
+// Sensors with no readings are absent from the result map.
+func (dm *DatabaseManager) readingStatsBySensor(ctx context.Context, sensorIDs []uuid.UUID) (map[uuid.UUID]readingStats, error) {
+	result := map[uuid.UUID]readingStats{}
+	if len(sensorIDs) == 0 {
+		return result, nil
+	}
+
+	const query = `
+		SELECT sensor_id, count() AS total, min(date_utc) AS first, max(date_utc) AS last
+		FROM sensor_readings
+		WHERE sensor_id IN ?
+		GROUP BY sensor_id
+	`
+	rows, err := dm.ch.Conn().Query(ctx, query, sensorIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query reading stats: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var s models.StationDetail
-		var firstReading, lastReading sql.NullTime
-		err := rows.Scan(
-			&s.ID,
-			&s.PassKey,
-			&s.StationType,
-			&s.Model,
-			&s.TotalReadings,
-			&firstReading,
-			&lastReading,
+		var (
+			sensorID uuid.UUID
+			total    uint64
+			first    time.Time
+			last     time.Time
 		)
-		if err != nil {
-			log.Printf("❌ Failed to scan s: %v", err)
+		if err := rows.Scan(&sensorID, &total, &first, &last); err != nil {
+			log.Printf("Failed to scan reading stats: %v", err)
 			continue
 		}
-
-		// Convert sql.NullTime to *time.Time
-		if firstReading.Valid {
-			s.FirstReading = firstReading.Time
+		result[sensorID] = readingStats{
+			Total: int(total),
+			First: first,
+			Last:  last,
 		}
-		if lastReading.Valid {
-			s.LastReading = lastReading.Time
-		}
-
-		stations = append(stations, s)
 	}
-
-	return stations, nil
+	return result, rows.Err()
 }
 
-// GetStation retrieves detailed information about a specific station
-func (dm *DatabaseManager) GetStation(stationID uuid.UUID) (models.StationDetail, error) {
-	query := `
-            SELECT 
-                s.id, 
-                s.pass_key, 
-                s.station_type, 
-                s.model,
-                COUNT(sr.id) as total_readings,
-                MIN(sr.date_utc) as first_reading,
-                MAX(sr.date_utc) as last_reading
-            FROM stations s
-            LEFT JOIN sensors sens ON s.id = sens.station_id
-            LEFT JOIN sensor_readings sr ON sens.id = sr.sensor_id
-            WHERE s.id = $1
-            GROUP BY s.id
-        `
-
-	var station models.StationDetail
-	var firstReading, lastReading sql.NullTime
-
-	err := dm.QueryRowWithHealthCheck(context.Background(), query, stationID).Scan(
-		&station.ID,
-		&station.PassKey,
-		&station.StationType,
-		&station.Model,
-		&station.TotalReadings,
-		&firstReading,
-		&lastReading,
-	)
-
-	// Convert sql.NullTime to *time.Time
-	if firstReading.Valid {
-		station.FirstReading = firstReading.Time
+// applyStationStats folds per-sensor reading stats into a single StationDetail.
+func applyStationStats(station *models.StationDetail, sensorIDs []uuid.UUID, statsBySensor map[uuid.UUID]readingStats) {
+	for _, sid := range sensorIDs {
+		s, ok := statsBySensor[sid]
+		if !ok {
+			continue
+		}
+		station.TotalReadings += s.Total
+		if station.FirstReading.IsZero() || s.First.Before(station.FirstReading) {
+			station.FirstReading = s.First
+		}
+		if s.Last.After(station.LastReading) {
+			station.LastReading = s.Last
+		}
 	}
-	if lastReading.Valid {
-		station.LastReading = lastReading.Time
-	}
-
-	return station, err
 }
 
 // GetStationConfig retrieves the configuration for a specific station

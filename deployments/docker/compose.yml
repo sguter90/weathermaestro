@@ -21,6 +21,37 @@ services:
       timeout: 5s
       retries: 5
 
+  clickhouse:
+    image: clickhouse:26.3
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CH_DATABASE:-weather}
+      CLICKHOUSE_USER: ${CH_USER:-weather}
+      CLICKHOUSE_PASSWORD: ${CH_PASSWORD:-weather}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      TZ: ${TZ:-Europe/Berlin}
+    ports:
+      - "${CH_PORT:-9000}:9000"
+      - "${CH_HTTP_PORT:-8123}:8123"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    cap_add:
+      - SYS_NICE
+      - NET_ADMIN
+      - IPC_LOCK
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   server:
     build:
       context: ../..
@@ -35,12 +66,19 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-weather_pass}
       DB_NAME: ${DB_NAME:-weather_db}
       DB_SSLMODE: ${DB_SSLMODE:-disable}
+      CH_HOST: clickhouse
+      CH_PORT: 9000
+      CH_USER: ${CH_USER:-weather}
+      CH_PASSWORD: ${CH_PASSWORD:-weather}
+      CH_DATABASE: ${CH_DATABASE:-weather}
       SERVER_PORT: 8059
       SERVER_ALLOWED_ORIGINS: ${SERVER_ALLOWED_ORIGINS:-http://localhost:8059}
       TZ: ${TZ:-Europe/Berlin}
       JWT_SECRET: ${JWT_SECRET}
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     networks:
       - internal
@@ -53,6 +91,10 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+  clickhouse_logs:
     driver: local
 
 networks:
