@@ -110,6 +110,10 @@ func (dm *DatabaseManager) Init() error {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
+	if err := dm.migrateSensorReadingsFromPostgres(); err != nil {
+		return fmt.Errorf("failed to migrate sensor readings to clickhouse: %w", err)
+	}
+
 	log.Println("✓ Database initialization completed successfully")
 	return nil
 }

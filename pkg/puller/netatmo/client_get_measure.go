@@ -80,8 +80,6 @@ func (c *Client) GetMeasure(ctx context.Context, deviceID, moduleID string, type
 	q.Add("real_time", "true")
 	req.URL.RawQuery = q.Encode()
 
-	fmt.Println(req.URL.String())
-
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch getmeasure from Netatmo: %w", err)
