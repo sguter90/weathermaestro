@@ -14,7 +14,7 @@ type ClickHouseManager struct {
 	conn driver.Conn
 }
 
-// NewClickHouseManager establishes a connection to ClickHouse and ensures the schema exists.
+// NewClickHouseManager establishes a connection to ClickHouse and applies any pending schema migrations.
 func NewClickHouseManager() (*ClickHouseManager, error) {
 	conn, err := connectClickHouse()
 	if err != nil {
@@ -23,9 +23,14 @@ func NewClickHouseManager() (*ClickHouseManager, error) {
 
 	cm := &ClickHouseManager{conn: conn}
 
-	if err := cm.ensureSchema(context.Background()); err != nil {
+	runner, err := NewClickHouseMigrationsRunner(conn)
+	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("failed to ensure clickhouse schema: %w", err)
+		return nil, fmt.Errorf("failed to create clickhouse migrations runner: %w", err)
+	}
+	if err := runner.Run(context.Background()); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to run clickhouse migrations: %w", err)
 	}
 
 	return cm, nil
@@ -47,22 +52,6 @@ func (cm *ClickHouseManager) Close() error {
 		return nil
 	}
 	return cm.conn.Close()
-}
-
-// ensureSchema creates the sensor_readings table if it does not already exist.
-func (cm *ClickHouseManager) ensureSchema(ctx context.Context) error {
-	const ddl = `
-		CREATE TABLE IF NOT EXISTS sensor_readings (
-			id         UUID DEFAULT generateUUIDv4(),
-			sensor_id  UUID,
-			value      Float64,
-			date_utc   DateTime64(3, 'UTC'),
-			created_at DateTime DEFAULT now()
-		) ENGINE = MergeTree()
-		PARTITION BY toYYYYMM(date_utc)
-		ORDER BY (sensor_id, date_utc)
-	`
-	return cm.conn.Exec(ctx, ddl)
 }
 
 func connectClickHouse() (driver.Conn, error) {

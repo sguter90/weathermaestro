@@ -50,13 +50,13 @@ func (dm *DatabaseManager) migrateSensorReadingsFromPostgres() error {
 	}
 
 	rows, err := dm.db.QueryContext(ctx,
-		"SELECT id, sensor_id, value, date_utc FROM sensor_readings ORDER BY date_utc ASC")
+		"SELECT sensor_id, value, date_utc FROM sensor_readings ORDER BY date_utc ASC")
 	if err != nil {
 		return fmt.Errorf("failed to query sensor_readings: %w", err)
 	}
 	defer rows.Close()
 
-	const insertStmt = "INSERT INTO sensor_readings (id, sensor_id, value, date_utc)"
+	const insertStmt = "INSERT INTO sensor_readings (sensor_id, value, date_utc)"
 	batch, err := dm.ch.Conn().PrepareBatch(ctx, insertStmt)
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
@@ -65,15 +65,14 @@ func (dm *DatabaseManager) migrateSensorReadingsFromPostgres() error {
 	var migrated int64
 	for rows.Next() {
 		var (
-			id       uuid.UUID
 			sensorID uuid.UUID
 			value    float64
 			dateUTC  time.Time
 		)
-		if err := rows.Scan(&id, &sensorID, &value, &dateUTC); err != nil {
+		if err := rows.Scan(&sensorID, &value, &dateUTC); err != nil {
 			return fmt.Errorf("failed to scan row %d: %w", migrated, err)
 		}
-		if err := batch.Append(id, sensorID, value, dateUTC.UTC()); err != nil {
+		if err := batch.Append(sensorID, value, dateUTC.UTC()); err != nil {
 			return fmt.Errorf("failed to append row %d: %w", migrated, err)
 		}
 		migrated++

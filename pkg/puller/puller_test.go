@@ -167,7 +167,6 @@ func TestMockPuller_GetProviderType(t *testing.T) {
 func TestMockPuller_Pull_Success(t *testing.T) {
 	expectedReadings := map[string]models.SensorReading{
 		"sensor1": {
-			ID:       uuid.New(),
 			SensorID: uuid.New(),
 			Value:    25.5,
 			DateUTC:  time.Now().UTC(),

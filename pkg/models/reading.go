@@ -10,7 +10,6 @@ import (
 
 // SensorReading represents a single measurement from a sensor
 type SensorReading struct {
-	ID       uuid.UUID `json:"id"`
 	SensorID uuid.UUID `json:"sensor_id"`
 	Value    float64   `json:"value"`
 	DateUTC  time.Time `json:"date_utc"`
