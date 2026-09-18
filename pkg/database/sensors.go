@@ -24,7 +24,6 @@ func (dm *DatabaseManager) latestReadingsForSensors(ctx context.Context, sensorI
 	const query = `
 		SELECT
 			sensor_id,
-			argMax(id, date_utc)    AS latest_id,
 			argMax(value, date_utc) AS latest_value,
 			max(date_utc)           AS latest_date
 		FROM sensor_readings
@@ -40,16 +39,14 @@ func (dm *DatabaseManager) latestReadingsForSensors(ctx context.Context, sensorI
 	for rows.Next() {
 		var (
 			sensorID    uuid.UUID
-			latestID    uuid.UUID
 			latestValue float64
 			latestDate  time.Time
 		)
-		if err := rows.Scan(&sensorID, &latestID, &latestValue, &latestDate); err != nil {
+		if err := rows.Scan(&sensorID, &latestValue, &latestDate); err != nil {
 			log.Printf("Failed to scan latest reading: %v", err)
 			continue
 		}
 		result[sensorID] = &models.SensorReading{
-			ID:       latestID,
 			SensorID: sensorID,
 			Value:    latestValue,
 			DateUTC:  latestDate,

@@ -23,7 +23,7 @@ func (dm *DatabaseManager) StoreSensorReading(sensorID uuid.UUID, value float64,
 // GetSensorReadings retrieves readings for a sensor within a time range.
 func (dm *DatabaseManager) GetSensorReadings(sensorID uuid.UUID, startTime, endTime time.Time, limit int) ([]models.SensorReading, error) {
 	const query = `
-		SELECT id, sensor_id, value, date_utc
+		SELECT sensor_id, value, date_utc
 		FROM sensor_readings
 		WHERE sensor_id = ? AND date_utc >= ? AND date_utc <= ?
 		ORDER BY date_utc DESC
@@ -40,7 +40,7 @@ func (dm *DatabaseManager) GetSensorReadings(sensorID uuid.UUID, startTime, endT
 	var readings []models.SensorReading
 	for rows.Next() {
 		var r models.SensorReading
-		if err := rows.Scan(&r.ID, &r.SensorID, &r.Value, &r.DateUTC); err != nil {
+		if err := rows.Scan(&r.SensorID, &r.Value, &r.DateUTC); err != nil {
 			log.Printf("Failed to scan reading: %v", err)
 			continue
 		}
@@ -162,7 +162,7 @@ func (dm *DatabaseManager) GetReadings(params models.ReadingQueryParams) (*model
 	limit := uint64(params.Limit)
 
 	dataQuery := fmt.Sprintf(
-		`SELECT id, sensor_id, value, date_utc FROM sensor_readings %s ORDER BY date_utc %s LIMIT %d OFFSET %d`,
+		`SELECT sensor_id, value, date_utc FROM sensor_readings %s ORDER BY date_utc %s LIMIT %d OFFSET %d`,
 		whereClause, order, limit, offset,
 	)
 
@@ -175,7 +175,7 @@ func (dm *DatabaseManager) GetReadings(params models.ReadingQueryParams) (*model
 	readings := []models.SensorReading{}
 	for rows.Next() {
 		var r models.SensorReading
-		if err := rows.Scan(&r.ID, &r.SensorID, &r.Value, &r.DateUTC); err != nil {
+		if err := rows.Scan(&r.SensorID, &r.Value, &r.DateUTC); err != nil {
 			log.Printf("Failed to scan reading: %v", err)
 			continue
 		}

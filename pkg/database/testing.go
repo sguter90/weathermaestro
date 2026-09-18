@@ -89,12 +89,16 @@ func setupTestClickHouse(t *testing.T) *ClickHouseManager {
 		t.Fatalf("Failed to drop ClickHouse tables: %v", err)
 	}
 
-	cm := &ClickHouseManager{conn: conn}
-	if err := cm.ensureSchema(ctx); err != nil {
-		t.Fatalf("Failed to ensure ClickHouse schema: %v", err)
+	runner, err := NewClickHouseMigrationsRunner(conn)
+	if err != nil {
+		t.Fatalf("Failed to create ClickHouse migrations runner: %v", err)
+	}
+	runner.DisableLogging()
+	if err := runner.Run(ctx); err != nil {
+		t.Fatalf("Failed to run ClickHouse migrations: %v", err)
 	}
 
-	return cm
+	return &ClickHouseManager{conn: conn}
 }
 
 // dropClickHouseTables drops all tables in the configured ClickHouse database.
